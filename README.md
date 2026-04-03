@@ -12,7 +12,7 @@ Forked from [boshyxd/robloxstudio-mcp](https://github.com/boshyxd/robloxstudio-m
 
 ## Setup
 
-1. Install the Studio plugin from this fork's [releases](https://github.com/Posuceius/robloxstudio-mcp-posu/releases) (required for new tools)
+1. Download [MCPPlugin.rbxmx](https://github.com/Posuceius/robloxstudio-mcp-posu/releases/latest/download/MCPPlugin.rbxmx) and place it in your Roblox Plugins folder
 2. Enable **Allow HTTP Requests** in Experience Settings > Security
 3. Connect your AI:
 
