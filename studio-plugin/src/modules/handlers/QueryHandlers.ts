@@ -965,6 +965,171 @@ function grepScripts(requestData: Record<string, unknown>) {
 	};
 }
 
+function getGameStats(requestData: Record<string, unknown>) {
+	const path = (requestData.path as string) ?? "game";
+	const root = getInstanceByPath(path);
+	if (!root) return { error: `Path not found: ${path}` };
+
+	let totalInstances = 0;
+	let partCount = 0;
+	let scriptCount = 0;
+	let localScriptCount = 0;
+	let moduleScriptCount = 0;
+	let guiObjectCount = 0;
+	let screenGuiCount = 0;
+	let modelCount = 0;
+	let meshPartCount = 0;
+	let lightCount = 0;
+	let soundCount = 0;
+	const classCounts: Record<string, number> = {};
+
+	function walkForStats(instance: Instance) {
+		totalInstances++;
+		const className = instance.ClassName;
+		classCounts[className] = (classCounts[className] ?? 0) + 1;
+
+		if (instance.IsA("BasePart")) partCount++;
+		if (className === "Script") scriptCount++;
+		if (className === "LocalScript") localScriptCount++;
+		if (className === "ModuleScript") moduleScriptCount++;
+		if (instance.IsA("GuiObject")) guiObjectCount++;
+		if (className === "ScreenGui") screenGuiCount++;
+		if (className === "Model") modelCount++;
+		if (className === "MeshPart") meshPartCount++;
+		if (instance.IsA("Light")) lightCount++;
+		if (instance.IsA("Sound")) soundCount++;
+
+		for (const child of instance.GetChildren()) {
+			walkForStats(child);
+		}
+	}
+
+	const [success, err] = pcall(() => walkForStats(root));
+	if (!success) return { error: `Failed to collect stats: ${tostring(err)}` };
+
+	const topClasses: Record<string, unknown>[] = [];
+	for (const [className, count] of pairs(classCounts)) {
+		topClasses.push({ className, count });
+	}
+	table.sort(topClasses, (classA, classB) => (classA.count as number) > (classB.count as number));
+	const topClassesSlice = topClasses.size() > 20 ? topClasses.move(0, 19, 0, []) : topClasses;
+
+	return {
+		path,
+		totalInstances,
+		summary: {
+			parts: partCount,
+			scripts: scriptCount,
+			localScripts: localScriptCount,
+			moduleScripts: moduleScriptCount,
+			guiObjects: guiObjectCount,
+			screenGuis: screenGuiCount,
+			models: modelCount,
+			meshParts: meshPartCount,
+			lights: lightCount,
+			sounds: soundCount,
+		},
+		topClasses: topClassesSlice,
+	};
+}
+
+function getOutputLog(requestData: Record<string, unknown>) {
+	const maxEntries = (requestData.maxEntries as number) ?? 100;
+
+	const messages: Record<string, unknown>[] = [];
+	const LogService = game.GetService("LogService");
+
+	const [success, err] = pcall(() => {
+		const history = LogService.GetLogHistory();
+		const startIndex = math.max(0, history.size() - maxEntries);
+		for (let index = startIndex; index < history.size(); index++) {
+			const entry = history[index];
+			messages.push({
+				message: entry.message,
+				messageType: tostring(entry.messageType),
+				timestamp: entry.timestamp,
+			});
+		}
+	});
+
+	if (!success) return { error: `Failed to read output log: ${tostring(err)}` };
+
+	return {
+		count: messages.size(),
+		messages,
+	};
+}
+
+function getScriptDependencies(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	if (!instancePath) return { error: "Instance path is required" };
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+
+	const path = (requestData.path as string) ?? "game";
+	const root = getInstanceByPath(path);
+	if (!root) return { error: `Search path not found: ${path}` };
+
+	const targetPath = getInstancePath(instance);
+	const targetName = instance.Name;
+	const escapedTargetName = string.gsub(targetName, "(%W)", "%%%1")[0];
+
+	const dependsOn: Record<string, unknown>[] = [];
+	const dependedOnBy: Record<string, unknown>[] = [];
+
+	function findRequires(inst: Instance) {
+		if (!inst.IsA("LuaSourceContainer")) return;
+
+		const [readSuccess, source] = pcall(() => readScriptSource(inst));
+		if (!readSuccess || !typeIs(source, "string")) return;
+
+		const scriptPath = getInstancePath(inst);
+		const srcStr = source as string;
+
+		const requirePatterns = [
+			`require%([^)]*${escapedTargetName}[^)]*%)`,
+			`require%([^)]*script%.Parent[^)]*%.${escapedTargetName}[^)]*%)`,
+		];
+
+		if (scriptPath === targetPath) {
+			let searchPos = 0;
+			while (true) {
+				const [requireStart, requireEnd] = string.find(srcStr, "require%((.-)%)", searchPos);
+				if (!requireStart || !requireEnd) break;
+				const requireArg = srcStr.sub(requireStart, requireEnd);
+				dependsOn.push({ requireStatement: requireArg, scriptPath });
+				searchPos = requireEnd + 1;
+			}
+		} else {
+			for (const pattern of requirePatterns) {
+				const [matchStart] = string.find(srcStr, pattern);
+				if (matchStart) {
+					dependedOnBy.push({ scriptPath, className: inst.ClassName });
+					break;
+				}
+			}
+		}
+	}
+
+	function walkForDeps(inst: Instance) {
+		findRequires(inst);
+		for (const child of inst.GetChildren()) {
+			walkForDeps(child);
+		}
+	}
+
+	const [success, err] = pcall(() => walkForDeps(root));
+	if (!success) return { error: `Failed to trace dependencies: ${tostring(err)}` };
+
+	return {
+		instancePath: targetPath,
+		className: instance.ClassName,
+		dependsOn,
+		dependedOnBy,
+	};
+}
+
 const UI_PROPERTY_GROUPS: Record<string, string[]> = {
 	GuiObject: ["Size", "Position", "AnchorPoint", "BackgroundColor3", "BackgroundTransparency", "BorderSizePixel", "BorderColor3", "ZIndex", "LayoutOrder", "Visible", "ClipsDescendants", "Rotation", "AutomaticSize", "SizeConstraint"],
 	TextLabel: ["Text", "TextColor3", "TextSize", "TextXAlignment", "TextYAlignment", "Font", "RichText", "TextWrapped", "TextScaled", "TextTransparency", "LineHeight"],
@@ -1061,4 +1226,7 @@ export = {
 	grepScripts,
 	extractUIStyle,
 	getUITree,
+	getGameStats,
+	getOutputLog,
+	getScriptDependencies,
 };

@@ -955,6 +955,90 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
 
+  // === Find and Replace ===
+  {
+    name: 'find_replace_in_scripts',
+    category: 'write',
+    description: 'Find and replace text across all scripts in one call. Supports case-insensitive matching and dry run mode to preview changes before applying.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        search: {
+          type: 'string',
+          description: 'Text to search for'
+        },
+        replacement: {
+          type: 'string',
+          description: 'Text to replace with'
+        },
+        path: {
+          type: 'string',
+          description: 'Subtree to search (e.g. "game.ServerScriptService"). Default: "game"'
+        },
+        caseSensitive: {
+          type: 'boolean',
+          description: 'Case-sensitive matching (default: false)'
+        },
+        dryRun: {
+          type: 'boolean',
+          description: 'Preview matches without making changes (default: false)'
+        }
+      },
+      required: ['search', 'replacement']
+    }
+  },
+
+  // === Game Intelligence ===
+  {
+    name: 'get_game_stats',
+    category: 'read',
+    description: 'Get instance count statistics for the game - total instances, parts, scripts, UI objects, models, etc. with top class breakdown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Subtree to analyze (default: "game")'
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_output_log',
+    category: 'read',
+    description: 'Read Studio Output log messages (print, warn, error) without requiring a playtest. Returns recent log history from LogService.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        maxEntries: {
+          type: 'number',
+          description: 'Maximum log entries to return (default: 100)'
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_script_dependencies',
+    category: 'read',
+    description: 'Trace require() dependencies for a script - shows what it depends on and what other scripts depend on it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path to the script to analyze'
+        },
+        path: {
+          type: 'string',
+          description: 'Subtree to search for dependencies (default: "game")'
+        }
+      },
+      required: ['instancePath']
+    }
+  },
+
   // === Playtest ===
   {
     name: 'start_playtest',
