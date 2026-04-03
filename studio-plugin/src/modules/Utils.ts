@@ -187,6 +187,17 @@ function convertPropertyValue(instance: Instance, propertyName: string, property
 		}
 	}
 
+	if (typeIs(propertyValue, "string") && (propertyValue as string).sub(1, 1) === "#") {
+		const hex = propertyValue as string;
+		const hexStr = hex.sub(2);
+		if (hexStr.size() === 6) {
+			const red = tonumber(hexStr.sub(1, 2), 16) ?? 0;
+			const green = tonumber(hexStr.sub(3, 4), 16) ?? 0;
+			const blue = tonumber(hexStr.sub(5, 6), 16) ?? 0;
+			return Color3.fromRGB(red, green, blue);
+		}
+	}
+
 	if (typeIs(propertyValue, "string")) {
 		const [success, currentVal] = pcall(() => inst[propertyName]);
 		if (success && typeOf(currentVal) === "EnumItem") {

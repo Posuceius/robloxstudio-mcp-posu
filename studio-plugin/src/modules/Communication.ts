@@ -28,8 +28,11 @@ const routeMap: Record<string, Handler> = {
 	"/api/class-info": QueryHandlers.getClassInfo,
 	"/api/project-structure": QueryHandlers.getProjectStructure,
 	"/api/grep-scripts": QueryHandlers.grepScripts,
+	"/api/get-ui-tree": QueryHandlers.getUITree,
+	"/api/extract-ui-style": QueryHandlers.extractUIStyle,
 
 	"/api/set-property": PropertyHandlers.setProperty,
+	"/api/set-properties": PropertyHandlers.setProperties,
 	"/api/mass-set-property": PropertyHandlers.massSetProperty,
 	"/api/mass-get-property": PropertyHandlers.massGetProperty,
 	"/api/set-calculated-property": PropertyHandlers.setCalculatedProperty,
@@ -38,6 +41,7 @@ const routeMap: Record<string, Handler> = {
 	"/api/create-object": InstanceHandlers.createObject,
 	"/api/mass-create-objects": InstanceHandlers.massCreateObjects,
 	"/api/mass-create-objects-with-properties": InstanceHandlers.massCreateObjectsWithProperties,
+	"/api/create-ui-tree": InstanceHandlers.createUITree,
 	"/api/delete-object": InstanceHandlers.deleteObject,
 	"/api/smart-duplicate": InstanceHandlers.smartDuplicate,
 	"/api/mass-duplicate": InstanceHandlers.massDuplicate,
@@ -412,7 +416,7 @@ function checkForUpdates() {
 				const latestVersion = data.version;
 				if (Utils.compareVersions(State.CURRENT_VERSION, latestVersion) < 0) {
 					const ui = UI.getElements();
-					ui.updateBannerText.Text = `v${latestVersion} available - github.com/boshyxd/robloxstudio-mcp`;
+					ui.updateBannerText.Text = `v${latestVersion} available - github.com/Posuceius/robloxstudio-mcp-posu`;
 					ui.updateBanner.Visible = true;
 					ui.contentFrame.Position = new UDim2(0, 8, 0, 92);
 					ui.contentFrame.Size = new UDim2(1, -16, 1, -100);

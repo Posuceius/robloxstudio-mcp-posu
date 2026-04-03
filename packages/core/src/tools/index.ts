@@ -164,6 +164,36 @@ export class RobloxStudioTools {
 
 
 
+  async getUITree(instancePath: string, maxDepth?: number) {
+    if (!instancePath) {
+      throw new Error('Instance path is required for get_ui_tree');
+    }
+    const response = await this.client.request('/api/get-ui-tree', { instancePath, maxDepth });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(response)
+        }
+      ]
+    };
+  }
+
+  async extractUIStyle(instancePath: string) {
+    if (!instancePath) {
+      throw new Error('Instance path is required for extract_ui_style');
+    }
+    const response = await this.client.request('/api/extract-ui-style', { instancePath });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(response)
+        }
+      ]
+    };
+  }
+
   async setProperty(instancePath: string, propertyName: string, propertyValue: any) {
     if (!instancePath || !propertyName) {
       throw new Error('Instance path and property name are required for set_property');
@@ -172,6 +202,27 @@ export class RobloxStudioTools {
       instancePath,
       propertyName,
       propertyValue
+    });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(response)
+        }
+      ]
+    };
+  }
+
+  async setProperties(instancePath: string, properties: Record<string, any>) {
+    if (!instancePath) {
+      throw new Error('Instance path is required for set_properties');
+    }
+    if (!properties || typeof properties !== 'object' || Object.keys(properties).length === 0) {
+      throw new Error('Properties object is required and must not be empty for set_properties');
+    }
+    const response = await this.client.request('/api/set-properties', {
+      instancePath,
+      properties
     });
     return {
       content: [
@@ -253,6 +304,173 @@ export class RobloxStudioTools {
         {
           type: 'text',
           text: JSON.stringify(response)
+        }
+      ]
+    };
+  }
+
+  async createUITree(parentPath: string, tree: any) {
+    if (!parentPath || !tree) {
+      throw new Error('Parent path and tree object are required for create_ui_tree');
+    }
+    const response = await this.client.request('/api/create-ui-tree', {
+      parentPath,
+      tree
+    });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(response)
+        }
+      ]
+    };
+  }
+
+  private static parseLuauValue(raw: string): unknown {
+    const s = raw.trim();
+    if (s === 'true') return true;
+    if (s === 'false') return false;
+
+    let m: RegExpMatchArray | null;
+
+    m = s.match(/^UDim2\.new\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/);
+    if (m) return { XScale: parseFloat(m[1]), XOffset: parseFloat(m[2]), YScale: parseFloat(m[3]), YOffset: parseFloat(m[4]) };
+
+    m = s.match(/^UDim2\.fromScale\(\s*([^,]+),\s*([^)]+)\)$/);
+    if (m) return { XScale: parseFloat(m[1]), XOffset: 0, YScale: parseFloat(m[2]), YOffset: 0 };
+
+    m = s.match(/^UDim2\.fromOffset\(\s*([^,]+),\s*([^)]+)\)$/);
+    if (m) return { XScale: 0, XOffset: parseFloat(m[1]), YScale: 0, YOffset: parseFloat(m[2]) };
+
+    m = s.match(/^Color3\.fromRGB\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/);
+    if (m) return [parseFloat(m[1]) / 255, parseFloat(m[2]) / 255, parseFloat(m[3]) / 255];
+
+    m = s.match(/^Color3\.new\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/);
+    if (m) return [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])];
+
+    m = s.match(/^UDim\.new\(\s*([^,]+),\s*([^)]+)\)$/);
+    if (m) return { Scale: parseFloat(m[1]), Offset: parseFloat(m[2]) };
+
+    m = s.match(/^Vector2\.new\(\s*([^,]+),\s*([^)]+)\)$/);
+    if (m) return { X: parseFloat(m[1]), Y: parseFloat(m[2]) };
+
+    m = s.match(/^Enum\.(\w+)\.(\w+)$/);
+    if (m) return m[2];
+
+    m = s.match(/^"(.*)"$/) ?? s.match(/^'(.*)'$/);
+    if (m) return m[1];
+
+    const num = parseFloat(s);
+    if (!isNaN(num)) return num;
+
+    return null;
+  }
+
+  private static parseLuauToTrees(code: string): any[] {
+    const INSTANCE_RE = /^local\s+(\w+)\s*=\s*Instance\.new\("(\w+)"\)/;
+    const PROP_RE = /^(\w+)\.(\w+)\s*=\s*(.+)$/;
+    const ROOT_PARENTS = new Set(['game.StarterGui', 'game:GetService("StarterGui")', 'game:GetService("PlayerGui")']);
+
+    const entries = new Map<string, { node: any; parentVar: string | null }>();
+    const lines = code.split('\n');
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('--')) continue;
+
+      const instMatch = line.match(INSTANCE_RE);
+      if (instMatch) {
+        const [, varName, className] = instMatch;
+        entries.set(varName, {
+          node: { className, name: varName, properties: {}, children: [] },
+          parentVar: null,
+        });
+        continue;
+      }
+
+      const propMatch = line.match(PROP_RE);
+      if (!propMatch) continue;
+
+      const [, varName, propName, rawValue] = propMatch;
+      const entry = entries.get(varName);
+      if (!entry) continue;
+
+      if (propName === 'Parent') {
+        const parentVal = rawValue.trim();
+        if (ROOT_PARENTS.has(parentVal)) {
+          entry.parentVar = '__root__';
+        } else {
+          entry.parentVar = parentVal;
+        }
+        continue;
+      }
+
+      if (propName === 'Name') {
+        const nameStr = rawValue.trim().match(/^"(.*)"$/) ?? rawValue.trim().match(/^'(.*)'$/);
+        if (nameStr) entry.node.name = nameStr[1];
+        continue;
+      }
+
+      const value = RobloxStudioTools.parseLuauValue(rawValue);
+      if (value !== null) {
+        entry.node.properties[propName] = value;
+      }
+    }
+
+    for (const [, entry] of entries) {
+      if (entry.parentVar && entry.parentVar !== '__root__') {
+        const parent = entries.get(entry.parentVar);
+        if (parent) {
+          parent.node.children.push(entry.node);
+        }
+      }
+    }
+
+    const roots: any[] = [];
+    for (const [, entry] of entries) {
+      if (entry.parentVar === '__root__' || entry.parentVar === null) {
+        roots.push(entry.node);
+      }
+    }
+    return roots;
+  }
+
+  async importLuauUI(parentPath: string, code: string) {
+    if (!parentPath || !code) {
+      throw new Error('Parent path and Luau code are required for import_luau_ui');
+    }
+
+    const trees = RobloxStudioTools.parseLuauToTrees(code);
+    if (trees.length === 0) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ error: 'No instances found in Luau code' }) }]
+      };
+    }
+
+    const results: any[] = [];
+    for (const tree of trees) {
+      const response = await this.client.request('/api/create-ui-tree', {
+        parentPath,
+        tree
+      });
+      results.push(response);
+    }
+
+    const totalCreated = results.reduce((sum: number, r: any) => sum + (r.totalCreated || 0), 0);
+    const totalFailed = results.reduce((sum: number, r: any) => sum + (r.totalFailed || 0), 0);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            success: totalCreated > 0,
+            treesImported: trees.length,
+            totalCreated,
+            totalFailed,
+            results
+          })
         }
       ]
     };
@@ -387,16 +605,74 @@ export class RobloxStudioTools {
   }
 
 
+  private static readonly scriptTypeInfo: Record<string, string> = {
+    'Script': 'Server Script - runs on the server only, full API access',
+    'LocalScript': 'Local Script - runs on the client (player), no ServerStorage access',
+    'ModuleScript': 'Module Script - shared library, loaded via require(), runs in caller\'s context',
+  };
+
+  private static readonly serviceInfo: Record<string, string> = {
+    'Workspace': 'Workspace - 3D world, replicated to all clients',
+    'ServerScriptService': 'ServerScriptService - server-only, never replicated to clients',
+    'ServerStorage': 'ServerStorage - server-only storage, invisible to clients',
+    'StarterGui': 'StarterGui - UI templates, copied to each player\'s PlayerGui on spawn',
+    'StarterPlayerScripts': 'StarterPlayerScripts - client scripts, run on each player\'s machine',
+    'StarterCharacterScripts': 'StarterCharacterScripts - client scripts, run when character spawns',
+    'ReplicatedStorage': 'ReplicatedStorage - shared, accessible from both server and client',
+    'ReplicatedFirst': 'ReplicatedFirst - first to load on client, used for loading screens',
+    'Players': 'Players - player management service',
+    'Lighting': 'Lighting - visual environment and post-processing',
+    'SoundService': 'SoundService - background audio',
+    'Teams': 'Teams - multiplayer team management',
+    'TestService': 'TestService - automated tests',
+  };
+
   async getScriptSource(instancePath: string, startLine?: number, endLine?: number) {
     if (!instancePath) {
       throw new Error('Instance path is required for get_script_source');
     }
-    const response = await this.client.request('/api/get-script-source', { instancePath, startLine, endLine });
+    const response = await this.client.request('/api/get-script-source', { instancePath, startLine, endLine }) as Record<string, unknown>;
+
+    if (response.error) {
+      return {
+        content: [{ type: 'text', text: `Error: ${response.error}` }]
+      };
+    }
+
+    const pathStr = (response.instancePath as string) || instancePath;
+    const pathSegments = pathStr.split('.');
+    const topService = typeof response.topService === 'string' && response.topService.length > 0
+      ? response.topService
+      : pathSegments[0] === 'game'
+        ? (pathSegments[1] ?? 'game')
+        : pathSegments[0];
+
+    const typeNote = RobloxStudioTools.scriptTypeInfo[response.className as string] || (response.className as string);
+    const serviceNote = RobloxStudioTools.serviceInfo[topService] || topService;
+
+    const headerLines: string[] = [
+      `Path: ${pathStr}`,
+      `Type: ${typeNote}`,
+      `Location: ${serviceNote}`,
+      `Lines: ${response.lineCount} total${response.isPartial ? ` (showing ${response.startLine}-${response.endLine})` : ''}`,
+    ];
+
+    if (response.enabled === false) {
+      headerLines.push('Status: DISABLED');
+    }
+
+    if (response.truncated) {
+      headerLines.push('Note: Truncated to first 1000 lines - use startLine/endLine to read more');
+    }
+
+    const header = headerLines.join('\n');
+    const code = (response.numberedSource || response.source) as string;
+
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify(response)
+          text: `${header}\n\n--- SOURCE CODE ---\n${code}`
         }
       ]
     };
@@ -709,13 +985,18 @@ export class RobloxStudioTools {
   private static findLibraryPath(): string {
     // Walk up from the script location to find the repo root (has .gitignore + package.json)
     let dir = path.dirname(decodeURIComponent(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, '$1'));
+    const startDir = dir;
     for (let i = 0; i < 6; i++) {
       const candidate = path.join(dir, 'build-library');
       if (fs.existsSync(candidate)) return candidate;
+      if (fs.existsSync(path.join(dir, '.gitignore')) && fs.existsSync(path.join(dir, 'package.json'))) {
+        fs.mkdirSync(candidate, { recursive: true });
+        return candidate;
+      }
       dir = path.dirname(dir);
     }
-    // Fallback: create next to wherever we are
-    const fallback = path.join(dir, 'build-library');
+    // Fallback: create next to the starting directory
+    const fallback = path.join(startDir, 'build-library');
     fs.mkdirSync(fallback, { recursive: true });
     return fallback;
   }

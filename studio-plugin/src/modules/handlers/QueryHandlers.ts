@@ -190,9 +190,57 @@ function searchObjects(requestData: Record<string, unknown>) {
 	return { results, query, searchType, count: results.size() };
 }
 
+const UI_DEFAULT_VALUES: Record<string, unknown> = {
+	BackgroundTransparency: "0",
+	BorderSizePixel: "0",
+	Visible: "true",
+	ZIndex: "1",
+	LayoutOrder: "0",
+	Rotation: "0",
+	ClipsDescendants: "false",
+	RichText: "false",
+	TextWrapped: "false",
+	TextScaled: "false",
+	TextTransparency: "0",
+	ImageTransparency: "0",
+	ResetOnSpawn: "true",
+	Active: "false",
+};
+
+function serializeValue(val: unknown, propName: string): unknown {
+	if (typeOf(val) === "UDim2") {
+		const udim = val as UDim2;
+		return { XScale: udim.X.Scale, XOffset: udim.X.Offset, YScale: udim.Y.Scale, YOffset: udim.Y.Offset };
+	}
+	if (typeOf(val) === "UDim") {
+		const udim = val as UDim;
+		return { Scale: udim.Scale, Offset: udim.Offset };
+	}
+	if (typeOf(val) === "Color3") {
+		const color = val as Color3;
+		return { R: math.floor(color.R * 255), G: math.floor(color.G * 255), B: math.floor(color.B * 255) };
+	}
+	if (typeOf(val) === "Vector2") {
+		const vec = val as Vector2;
+		return { X: vec.X, Y: vec.Y };
+	}
+	if (typeOf(val) === "Vector3") {
+		const vec = val as Vector3;
+		return { X: vec.X, Y: vec.Y, Z: vec.Z };
+	}
+	return tostring(val);
+}
+
+function tryReadProp(instance: Instance, propName: string): unknown {
+	const [propSuccess, propValue] = pcall(() => (instance as unknown as Record<string, unknown>)[propName]);
+	if (propSuccess && propValue !== undefined) return serializeValue(propValue, propName);
+	return undefined;
+}
+
 function getInstanceProperties(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
 	const excludeSource = (requestData.excludeSource as boolean) ?? false;
+	const stripDefaults = (requestData.stripDefaults as boolean) ?? false;
 	if (!instancePath) return { error: "Instance path is required" };
 
 	const instance = getInstanceByPath(instancePath);
@@ -200,16 +248,10 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 
 	const properties: Record<string, unknown> = {};
 	const [success, result] = pcall(() => {
-		const basicProps = ["Name", "ClassName", "Parent"];
-		for (const prop of basicProps) {
-			const [propSuccess, propValue] = pcall(() => {
-				const val = (instance as unknown as Record<string, unknown>)[prop];
-				if (prop === "Parent" && val) return getInstancePath(val as Instance);
-				if (val === undefined) return "nil";
-				return tostring(val);
-			});
-			if (propSuccess) properties[prop] = propValue;
-		}
+		properties.Name = instance.Name;
+		properties.ClassName = instance.ClassName;
+		const parentInst = instance.Parent;
+		if (parentInst) properties.Parent = getInstancePath(parentInst);
 
 		const commonProps = [
 			"Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide",
@@ -221,19 +263,99 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 		];
 
 		for (const prop of commonProps) {
-			const [propSuccess, propValue] = pcall(() => {
-				const val = (instance as unknown as Record<string, unknown>)[prop];
-				if (typeOf(val) === "UDim2") {
-					const udim = val as UDim2;
-					return {
-						X: { Scale: udim.X.Scale, Offset: udim.X.Offset },
-						Y: { Scale: udim.Y.Scale, Offset: udim.Y.Offset },
-						_type: "UDim2",
-					};
-				}
-				return tostring(val);
-			});
-			if (propSuccess) properties[prop] = propValue;
+			const val = tryReadProp(instance, prop);
+			if (val !== undefined) properties[prop] = val;
+		}
+
+		if (instance.IsA("GuiObject")) {
+			const guiProps = [
+				"AnchorPoint", "AutomaticSize", "BorderColor3",
+				"SizeConstraint", "LayoutOrder", "ClipsDescendants",
+			];
+			for (const prop of guiProps) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+
+		if (instance.IsA("TextLabel") || instance.IsA("TextButton") || instance.IsA("TextBox")) {
+			const textProps = ["TextSize", "TextXAlignment", "TextYAlignment", "Font", "FontFace", "RichText", "TextWrapped", "TextScaled", "LineHeight"];
+			for (const prop of textProps) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+
+		if (instance.IsA("ImageLabel") || instance.IsA("ImageButton")) {
+			const imageProps = ["ScaleType", "SliceCenter", "TileSize", "ImageRectOffset", "ImageRectSize"];
+			for (const prop of imageProps) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+
+		if (instance.IsA("ScrollingFrame")) {
+			const scrollProps = ["CanvasSize", "CanvasPosition", "ScrollBarThickness", "ScrollBarImageColor3", "ScrollingDirection", "ElasticBehavior"];
+			for (const prop of scrollProps) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+
+		if (instance.IsA("UICorner")) {
+			properties.CornerRadius = tryReadProp(instance, "CornerRadius");
+		}
+		if (instance.IsA("UIStroke")) {
+			for (const prop of ["Color", "Thickness", "Transparency", "ApplyStrokeMode"]) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+		if (instance.IsA("UIPadding")) {
+			for (const prop of ["PaddingTop", "PaddingBottom", "PaddingLeft", "PaddingRight"]) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+		if (instance.IsA("UIListLayout")) {
+			for (const prop of ["FillDirection", "HorizontalAlignment", "VerticalAlignment", "Padding", "SortOrder"]) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+		if (instance.IsA("UIGridLayout")) {
+			for (const prop of ["CellPadding", "CellSize", "FillDirection", "SortOrder", "FillDirectionMaxCells"]) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+		if (instance.ClassName === "UIAspectRatioConstraint") {
+			for (const prop of ["AspectRatio", "AspectType", "DominantAxis"]) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+		if (instance.ClassName === "UIScale") {
+			properties.Scale = tryReadProp(instance, "Scale");
+		}
+		if (instance.ClassName === "UISizeConstraint") {
+			for (const prop of ["MinSize", "MaxSize"]) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+		if (instance.ClassName === "UIGradient") {
+			for (const prop of ["Rotation", "Transparency"]) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
+		}
+
+		if (instance.IsA("ScreenGui")) {
+			for (const prop of ["IgnoreGuiInset", "DisplayOrder", "ResetOnSpawn"]) {
+				const val = tryReadProp(instance, prop);
+				if (val !== undefined) properties[prop] = val;
+			}
 		}
 
 		if (instance.IsA("LuaSourceContainer")) {
@@ -249,56 +371,210 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 			}
 		}
 
-		if (instance.IsA("Part")) {
-			properties.Shape = tostring(instance.Shape);
-		}
-
+		if (instance.IsA("Part")) properties.Shape = tostring(instance.Shape);
 		if (instance.IsA("BasePart")) {
 			properties.TopSurface = tostring(instance.TopSurface);
 			properties.BottomSurface = tostring(instance.BottomSurface);
 		}
-
 		if (instance.IsA("MeshPart")) {
 			properties.MeshId = tostring(instance.MeshId);
 			properties.TextureID = tostring(instance.TextureID);
 		}
-
 		if (instance.IsA("SpecialMesh")) {
 			properties.MeshId = tostring(instance.MeshId);
 			properties.TextureId = tostring(instance.TextureId);
 			properties.MeshType = tostring(instance.MeshType);
 		}
-
 		if (instance.IsA("Sound")) {
 			properties.SoundId = tostring(instance.SoundId);
 			properties.TimeLength = tostring(instance.TimeLength);
 			properties.IsPlaying = tostring(instance.IsPlaying);
 		}
-
-		if (instance.IsA("Animation")) {
-			properties.AnimationId = tostring(instance.AnimationId);
-		}
-
+		if (instance.IsA("Animation")) properties.AnimationId = tostring(instance.AnimationId);
 		if (instance.IsA("Decal") || instance.IsA("Texture")) {
 			properties.Texture = tostring((instance as Decal | Texture).Texture);
 		}
-
-		if (instance.IsA("Shirt")) {
-			properties.ShirtTemplate = tostring(instance.ShirtTemplate);
-		} else if (instance.IsA("Pants")) {
-			properties.PantsTemplate = tostring(instance.PantsTemplate);
-		} else if (instance.IsA("ShirtGraphic")) {
-			properties.Graphic = tostring(instance.Graphic);
-		}
+		if (instance.IsA("Shirt")) properties.ShirtTemplate = tostring(instance.ShirtTemplate);
+		else if (instance.IsA("Pants")) properties.PantsTemplate = tostring(instance.PantsTemplate);
+		else if (instance.IsA("ShirtGraphic")) properties.Graphic = tostring(instance.Graphic);
 
 		properties.ChildCount = tostring(instance.GetChildren().size());
 	});
 
-	if (success) {
-		return { instancePath, className: instance.ClassName, properties };
-	} else {
-		return { error: `Failed to get properties: ${result}` };
+	if (!success) return { error: `Failed to get properties: ${result}` };
+
+	if (stripDefaults) {
+		for (const [key, defaultVal] of pairs(UI_DEFAULT_VALUES)) {
+			if (properties[key] === defaultVal) {
+				delete properties[key as string];
+			}
+		}
 	}
+
+	return { instancePath, className: instance.ClassName, properties };
+}
+
+function extractUIStyle(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	if (!instancePath) return { error: "Instance path is required" };
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+
+	const colorCounts: Record<string, number> = {};
+	const fontCounts: Record<string, number> = {};
+	const cornerRadii: Record<string, number> = {};
+	const strokePatterns: Record<string, number> = {};
+	const spacingValues: Record<string, number> = {};
+	const transparencyValues: Record<string, number> = {};
+	const imageAssets: Record<string, string> = {};
+
+	function colorKey(color: Color3): string {
+		const red = math.floor(color.R * 255);
+		const green = math.floor(color.G * 255);
+		const blue = math.floor(color.B * 255);
+		return `${red},${green},${blue}`;
+	}
+
+	function walkTree(inst: Instance) {
+		const instRecord = inst as unknown as Record<string, unknown>;
+
+		const [bgSuccess, bgColor] = pcall(() => instRecord.BackgroundColor3);
+		if (bgSuccess && typeOf(bgColor) === "Color3") {
+			const key = colorKey(bgColor as Color3);
+			const bgTransVal = instRecord.BackgroundTransparency as number;
+			if (bgTransVal === undefined || bgTransVal < 1) {
+				colorCounts[key] = (colorCounts[key] ?? 0) + 1;
+			}
+		}
+
+		const [textColorSuccess, textColor] = pcall(() => instRecord.TextColor3);
+		if (textColorSuccess && typeOf(textColor) === "Color3") {
+			const key = colorKey(textColor as Color3);
+			colorCounts[key] = (colorCounts[key] ?? 0) + 1;
+		}
+
+		const [fontSuccess, fontVal] = pcall(() => instRecord.Font);
+		if (fontSuccess && fontVal !== undefined) {
+			const fontStr = tostring(fontVal);
+			fontCounts[fontStr] = (fontCounts[fontStr] ?? 0) + 1;
+		}
+
+		const [imageSuccess, imageVal] = pcall(() => instRecord.Image);
+		if (imageSuccess && typeIs(imageVal, "string") && (imageVal as string).size() > 0) {
+			const imageSrc = imageVal as string;
+			imageAssets[imageSrc] = inst.ClassName;
+		}
+
+		if (inst.IsA("UICorner")) {
+			const [crSuccess, crVal] = pcall(() => (inst as UICorner).CornerRadius);
+			if (crSuccess) {
+				const key = `${(crVal as UDim).Scale},${(crVal as UDim).Offset}`;
+				cornerRadii[key] = (cornerRadii[key] ?? 0) + 1;
+			}
+		}
+
+		if (inst.IsA("UIStroke")) {
+			const [strokeSuccess] = pcall(() => {
+				const stroke = inst as UIStroke;
+				const key = `${stroke.Thickness}|${colorKey(stroke.Color)}`;
+				strokePatterns[key] = (strokePatterns[key] ?? 0) + 1;
+			});
+		}
+
+		if (inst.IsA("UIPadding")) {
+			const [padSuccess] = pcall(() => {
+				const pad = inst as UIPadding;
+				for (const side of ["PaddingTop", "PaddingBottom", "PaddingLeft", "PaddingRight"] as const) {
+					const udim = pad[side];
+					const key = `${udim.Offset}`;
+					spacingValues[key] = (spacingValues[key] ?? 0) + 1;
+				}
+			});
+		}
+
+		if (inst.IsA("UIListLayout")) {
+			const [listSuccess] = pcall(() => {
+				const layout = inst as UIListLayout;
+				const key = `${layout.Padding.Offset}`;
+				spacingValues[key] = (spacingValues[key] ?? 0) + 1;
+			});
+		}
+
+		const [btSuccess, btVal] = pcall(() => instRecord.BackgroundTransparency);
+		if (btSuccess && typeIs(btVal, "number") && (btVal as number) > 0 && (btVal as number) < 1) {
+			const key = tostring(btVal);
+			transparencyValues[key] = (transparencyValues[key] ?? 0) + 1;
+		}
+
+		for (const child of inst.GetChildren()) {
+			walkTree(child);
+		}
+	}
+
+	const [success, walkError] = pcall(() => walkTree(instance));
+	if (!success) return { error: `Failed to extract style: ${tostring(walkError)}` };
+
+	const sortedColors: Record<string, unknown>[] = [];
+	for (const [key, count] of pairs(colorCounts)) {
+		const parts = (key as string).split(",");
+		sortedColors.push({
+			rgb: key,
+			red: tonumber(parts[0]) ?? 0,
+			green: tonumber(parts[1]) ?? 0,
+			blue: tonumber(parts[2]) ?? 0,
+			count: count,
+		});
+	}
+	table.sort(sortedColors, (colorA, colorB) => (colorA.count as number) > (colorB.count as number));
+
+	const sortedFonts: Record<string, unknown>[] = [];
+	for (const [key, count] of pairs(fontCounts)) {
+		sortedFonts.push({ font: key, count: count });
+	}
+	table.sort(sortedFonts, (fontA, fontB) => (fontA.count as number) > (fontB.count as number));
+
+	const sortedRadii: Record<string, unknown>[] = [];
+	for (const [key, count] of pairs(cornerRadii)) {
+		const parts = (key as string).split(",");
+		sortedRadii.push({ scale: tonumber(parts[0]) ?? 0, offset: tonumber(parts[1]) ?? 0, count: count });
+	}
+
+	const sortedStrokes: Record<string, unknown>[] = [];
+	for (const [key, count] of pairs(strokePatterns)) {
+		const parts = (key as string).split("|");
+		sortedStrokes.push({ thickness: tonumber(parts[0]) ?? 0, color: parts[1], count: count });
+	}
+
+	const sortedSpacing: Record<string, unknown>[] = [];
+	for (const [key, count] of pairs(spacingValues)) {
+		sortedSpacing.push({ offset: tonumber(key) ?? 0, count: count });
+	}
+	table.sort(sortedSpacing, (spacingA, spacingB) => (spacingA.count as number) > (spacingB.count as number));
+
+	const sortedTransparencies: Record<string, unknown>[] = [];
+	for (const [key, count] of pairs(transparencyValues)) {
+		sortedTransparencies.push({ value: tonumber(key) ?? 0, count: count });
+	}
+
+	const imageList: Record<string, unknown>[] = [];
+	for (const [assetId, className] of pairs(imageAssets)) {
+		imageList.push({ assetId: assetId, className: className });
+	}
+
+	return {
+		instancePath,
+		className: instance.ClassName,
+		tokens: {
+			colors: sortedColors,
+			fonts: sortedFonts,
+			cornerRadii: sortedRadii,
+			strokes: sortedStrokes,
+			spacing: sortedSpacing,
+			transparencies: sortedTransparencies,
+			images: imageList,
+		},
+	};
 }
 
 function getInstanceChildren(requestData: Record<string, unknown>) {
@@ -689,6 +965,87 @@ function grepScripts(requestData: Record<string, unknown>) {
 	};
 }
 
+const UI_PROPERTY_GROUPS: Record<string, string[]> = {
+	GuiObject: ["Size", "Position", "AnchorPoint", "BackgroundColor3", "BackgroundTransparency", "BorderSizePixel", "BorderColor3", "ZIndex", "LayoutOrder", "Visible", "ClipsDescendants", "Rotation", "AutomaticSize", "SizeConstraint"],
+	TextLabel: ["Text", "TextColor3", "TextSize", "TextXAlignment", "TextYAlignment", "Font", "RichText", "TextWrapped", "TextScaled", "TextTransparency", "LineHeight"],
+	ImageLabel: ["Image", "ImageColor3", "ImageTransparency", "ScaleType", "SliceCenter", "TileSize"],
+	ScrollingFrame: ["CanvasSize", "CanvasPosition", "ScrollBarThickness", "ScrollBarImageColor3", "ScrollingDirection"],
+	ScreenGui: ["IgnoreGuiInset", "DisplayOrder", "ResetOnSpawn"],
+	UICorner: ["CornerRadius"],
+	UIStroke: ["Color", "Thickness", "Transparency", "ApplyStrokeMode"],
+	UIPadding: ["PaddingTop", "PaddingBottom", "PaddingLeft", "PaddingRight"],
+	UIListLayout: ["FillDirection", "HorizontalAlignment", "VerticalAlignment", "Padding", "SortOrder"],
+	UIGridLayout: ["CellPadding", "CellSize", "FillDirection", "SortOrder", "FillDirectionMaxCells"],
+	UIAspectRatioConstraint: ["AspectRatio", "AspectType", "DominantAxis"],
+	UIScale: ["Scale"],
+	UISizeConstraint: ["MinSize", "MaxSize"],
+	UIGradient: ["Rotation", "Transparency"],
+};
+
+function serializeInstanceTree(instance: Instance, maxDepth: number, currentDepth: number): Record<string, unknown> | undefined {
+	if (currentDepth > maxDepth) return undefined;
+
+	const node: Record<string, unknown> = {
+		className: instance.ClassName,
+		name: instance.Name,
+	};
+
+	const properties: Record<string, unknown> = {};
+
+	const propsToRead: string[] = [];
+	if (instance.IsA("GuiObject")) propsToRead.push(...UI_PROPERTY_GROUPS.GuiObject);
+	if (instance.IsA("TextLabel") || instance.IsA("TextButton") || instance.IsA("TextBox")) propsToRead.push(...UI_PROPERTY_GROUPS.TextLabel);
+	if (instance.IsA("ImageLabel") || instance.IsA("ImageButton")) propsToRead.push(...UI_PROPERTY_GROUPS.ImageLabel);
+	if (instance.IsA("ScrollingFrame")) propsToRead.push(...UI_PROPERTY_GROUPS.ScrollingFrame);
+	if (instance.IsA("ScreenGui")) propsToRead.push(...UI_PROPERTY_GROUPS.ScreenGui);
+
+	const classProps = UI_PROPERTY_GROUPS[instance.ClassName];
+	if (classProps) propsToRead.push(...classProps);
+
+	for (const propName of propsToRead) {
+		const val = tryReadProp(instance, propName);
+		if (val !== undefined) {
+			const valStr = tostring(val);
+			if (UI_DEFAULT_VALUES[propName] !== undefined && UI_DEFAULT_VALUES[propName] === valStr) continue;
+			properties[propName] = val;
+		}
+	}
+
+	if (properties !== undefined && next(properties)[0] !== undefined) {
+		node.properties = properties;
+	}
+
+	const children = instance.GetChildren();
+	if (children.size() > 0) {
+		const childNodes: Record<string, unknown>[] = [];
+		for (const child of children) {
+			const childNode = serializeInstanceTree(child, maxDepth, currentDepth + 1);
+			if (childNode) childNodes.push(childNode);
+		}
+		if (childNodes.size() > 0) node.children = childNodes;
+	}
+
+	return node;
+}
+
+function getUITree(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	const maxDepth = (requestData.maxDepth as number) ?? 50;
+
+	if (!instancePath) return { error: "Instance path is required" };
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+
+	const [success, result] = pcall(() => serializeInstanceTree(instance, maxDepth, 0));
+
+	if (success && result) {
+		return { instancePath, tree: result };
+	} else {
+		return { error: `Failed to serialize UI tree: ${tostring(result)}` };
+	}
+}
+
 export = {
 	getFileTree,
 	searchFiles,
@@ -701,4 +1058,6 @@ export = {
 	getClassInfo,
 	getProjectStructure,
 	grepScripts,
+	extractUIStyle,
+	getUITree,
 };

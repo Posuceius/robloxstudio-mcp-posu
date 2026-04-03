@@ -4,7 +4,7 @@ import { homedir } from 'os';
 import { get } from 'https';
 import { IncomingMessage } from 'http';
 
-const REPO = 'boshyxd/robloxstudio-mcp';
+const REPO = 'Posuceius/robloxstudio-mcp-posu';
 const ASSET_NAME = 'MCPPlugin.rbxmx';
 const TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;
