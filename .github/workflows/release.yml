@@ -26,7 +26,10 @@ jobs:
       - name: Build packages
         run: npm run build
 
-      - name: Build plugin
+      - name: Compile studio plugin (roblox-ts)
+        run: cd studio-plugin && npx rbxtsc
+
+      - name: Build plugin (.rbxmx)
         run: npm run build:plugin
 
       - name: Upload plugin to release
