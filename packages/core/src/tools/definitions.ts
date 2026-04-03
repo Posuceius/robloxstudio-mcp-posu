@@ -163,6 +163,44 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
 
+  // === UI Tree Serialization ===
+  {
+    name: 'get_ui_tree',
+    category: 'read',
+    description: 'Recursively serialize an entire UI hierarchy into a nested JSON tree in one call. Returns all properties (with defaults stripped) and children. Perfect for reading existing UIs to understand structure or replicate them.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path to a ScreenGui or UI container (e.g. game.StarterGui.MainMenu)'
+        },
+        maxDepth: {
+          type: 'number',
+          description: 'Maximum tree depth to traverse (default: 50)'
+        }
+      },
+      required: ['instancePath']
+    }
+  },
+
+  // === Style Extraction ===
+  {
+    name: 'extract_ui_style',
+    category: 'read',
+    description: 'Extract design tokens from a UI hierarchy - returns color palette, fonts, corner radii, strokes, spacing, transparency patterns, and image assets sorted by frequency',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path to a ScreenGui or UI container to analyze (e.g. game.StarterGui.MainMenu)'
+        }
+      },
+      required: ['instancePath']
+    }
+  },
+
   // === Project Structure ===
   {
     name: 'get_project_structure',
@@ -208,6 +246,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         }
       },
       required: ['instancePath', 'propertyName', 'propertyValue']
+    }
+  },
+  {
+    name: 'set_properties',
+    category: 'write',
+    description: 'Set multiple properties on a single instance in one call',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Instance path (dot notation)'
+        },
+        properties: {
+          type: 'object',
+          description: 'Object mapping property names to values (e.g. {"Size": [4,1,4], "Anchored": true, "Color": [1,0,0]})'
+        }
+      },
+      required: ['instancePath', 'properties']
     }
   },
   {
@@ -317,6 +374,44 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         }
       },
       required: ['objects']
+    }
+  },
+  {
+    name: 'create_ui_tree',
+    category: 'write',
+    description: 'Create entire UI hierarchy from nested JSON tree in one call. Each node has className, name, properties, and children array.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parentPath: {
+          type: 'string',
+          description: 'Parent instance path where tree root is created'
+        },
+        tree: {
+          type: 'object',
+          description: 'Nested tree: { className, name?, properties?: {}, children?: [...] }'
+        }
+      },
+      required: ['parentPath', 'tree']
+    }
+  },
+  {
+    name: 'import_luau_ui',
+    category: 'write',
+    description: 'Parse Luau UI code (Instance.new style) and create the instances in Studio. Accepts code from tutorials, generators, or scripts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parentPath: {
+          type: 'string',
+          description: 'Parent instance path where root UIs are created (e.g. game.StarterGui)'
+        },
+        code: {
+          type: 'string',
+          description: 'Luau code containing Instance.new() calls and property assignments'
+        }
+      },
+      required: ['parentPath', 'code']
     }
   },
   {

@@ -95,6 +95,13 @@ function getScriptSource(requestData: Record<string, unknown>) {
 		if (instance.IsA("BaseScript")) {
 			resp.enabled = instance.Enabled;
 		}
+
+		let topServiceInstance: Instance = instance;
+		while (topServiceInstance.Parent && topServiceInstance.Parent !== game) {
+			topServiceInstance = topServiceInstance.Parent;
+		}
+		resp.topService = topServiceInstance.Name;
+
 		return resp;
 	});
 
