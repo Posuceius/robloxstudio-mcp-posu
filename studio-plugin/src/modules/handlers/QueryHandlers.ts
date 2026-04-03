@@ -1073,6 +1073,7 @@ function getScriptDependencies(requestData: Record<string, unknown>) {
 
 	const targetPath = getInstancePath(instance);
 	const targetName = instance.Name;
+	const escapedTargetName = string.gsub(targetName, "(%W)", "%%%1")[0];
 
 	const dependsOn: Record<string, unknown>[] = [];
 	const dependedOnBy: Record<string, unknown>[] = [];
@@ -1087,8 +1088,8 @@ function getScriptDependencies(requestData: Record<string, unknown>) {
 		const srcStr = source as string;
 
 		const requirePatterns = [
-			`require%([^)]*${targetName}[^)]*%)`,
-			`require%([^)]*script%.Parent[^)]*%.${targetName}[^)]*%)`,
+			`require%([^)]*${escapedTargetName}[^)]*%)`,
+			`require%([^)]*script%.Parent[^)]*%.${escapedTargetName}[^)]*%)`,
 		];
 
 		if (scriptPath === targetPath) {

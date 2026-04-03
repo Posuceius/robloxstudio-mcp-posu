@@ -413,16 +413,8 @@ function findReplaceInScripts(requestData: Record<string, unknown>) {
 					newParts.push(originalSource.sub(lastEnd + 1));
 					const newSource = newParts.join("");
 
-					const ScriptEditorServiceInst = game.GetService("ScriptEditorService");
 					const [writeSuccess, writeErr] = pcall(() => {
-						const doc = ScriptEditorServiceInst.FindScriptDocument(instance);
-						if (doc) {
-							const lineCount = doc.GetLineCount();
-							const lastLineText = doc.GetLine(lineCount);
-							doc.EditTextAsync(newSource, 1, 1, lineCount, lastLineText.size() + 1);
-						} else {
-							(instance as unknown as { Source: string }).Source = newSource;
-						}
+						ScriptEditorService.UpdateSourceAsync(instance, () => newSource);
 					});
 
 					if (!writeSuccess) {
