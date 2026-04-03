@@ -993,14 +993,15 @@ function serializeInstanceTree(instance: Instance, maxDepth: number, currentDept
 	const properties: Record<string, unknown> = {};
 
 	const propsToRead: string[] = [];
-	if (instance.IsA("GuiObject")) propsToRead.push(...UI_PROPERTY_GROUPS.GuiObject);
-	if (instance.IsA("TextLabel") || instance.IsA("TextButton") || instance.IsA("TextBox")) propsToRead.push(...UI_PROPERTY_GROUPS.TextLabel);
-	if (instance.IsA("ImageLabel") || instance.IsA("ImageButton")) propsToRead.push(...UI_PROPERTY_GROUPS.ImageLabel);
-	if (instance.IsA("ScrollingFrame")) propsToRead.push(...UI_PROPERTY_GROUPS.ScrollingFrame);
-	if (instance.IsA("ScreenGui")) propsToRead.push(...UI_PROPERTY_GROUPS.ScreenGui);
+	function addProps(group: string[]) { for (const prop of group) propsToRead.push(prop); }
+	if (instance.IsA("GuiObject")) addProps(UI_PROPERTY_GROUPS.GuiObject);
+	if (instance.IsA("TextLabel") || instance.IsA("TextButton") || instance.IsA("TextBox")) addProps(UI_PROPERTY_GROUPS.TextLabel);
+	if (instance.IsA("ImageLabel") || instance.IsA("ImageButton")) addProps(UI_PROPERTY_GROUPS.ImageLabel);
+	if (instance.IsA("ScrollingFrame")) addProps(UI_PROPERTY_GROUPS.ScrollingFrame);
+	if (instance.IsA("ScreenGui")) addProps(UI_PROPERTY_GROUPS.ScreenGui);
 
 	const classProps = UI_PROPERTY_GROUPS[instance.ClassName];
-	if (classProps) propsToRead.push(...classProps);
+	if (classProps) addProps(classProps);
 
 	for (const propName of propsToRead) {
 		const val = tryReadProp(instance, propName);
