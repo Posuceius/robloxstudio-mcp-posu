@@ -770,6 +770,32 @@ export class RobloxStudioTools {
     };
   }
 
+  async findReplaceInScripts(search: string, replacement: string, options?: { path?: string; caseSensitive?: boolean; dryRun?: boolean }) {
+    if (!search || replacement === undefined) {
+      throw new Error('Search pattern and replacement are required for find_replace_in_scripts');
+    }
+    const response = await this.client.request('/api/find-replace-in-scripts', { search, replacement, ...options });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async getGameStats(path?: string) {
+    const response = await this.client.request('/api/get-game-stats', { path });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async getOutputLog(maxEntries?: number) {
+    const response = await this.client.request('/api/get-output-log', { maxEntries });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async getScriptDependencies(instancePath: string, path?: string) {
+    if (!instancePath) {
+      throw new Error('Instance path is required for get_script_dependencies');
+    }
+    const response = await this.client.request('/api/get-script-dependencies', { instancePath, path });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
   async getAttribute(instancePath: string, attributeName: string) {
     if (!instancePath || !attributeName) {
       throw new Error('Instance path and attribute name are required for get_attribute');

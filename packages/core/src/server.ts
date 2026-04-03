@@ -342,6 +342,20 @@ export class RobloxStudioMCPServer {
               classFilter: (args as any)?.classFilter,
             });
 
+          case 'find_replace_in_scripts':
+            return await this.tools.findReplaceInScripts((args as any)?.search as string, (args as any)?.replacement as string, {
+              path: (args as any)?.path,
+              caseSensitive: (args as any)?.caseSensitive,
+              dryRun: (args as any)?.dryRun,
+            });
+
+          case 'get_game_stats':
+            return await this.tools.getGameStats((args as any)?.path);
+          case 'get_output_log':
+            return await this.tools.getOutputLog((args as any)?.maxEntries);
+          case 'get_script_dependencies':
+            return await this.tools.getScriptDependencies((args as any)?.instancePath as string, (args as any)?.path);
+
           case 'get_script_source':
             return await this.tools.getScriptSource((args as any)?.instancePath as string, (args as any)?.startLine, (args as any)?.endLine);
           case 'set_script_source':

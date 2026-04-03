@@ -351,10 +351,120 @@ function deleteScriptLines(requestData: Record<string, unknown>) {
 	return { error: `Failed to delete script lines: ${result}` };
 }
 
+function findReplaceInScripts(requestData: Record<string, unknown>) {
+	const searchPattern = requestData.search as string;
+	const replacement = requestData.replacement as string;
+	const path = (requestData.path as string) ?? "game";
+	const caseSensitive = (requestData.caseSensitive as boolean) ?? false;
+	const dryRun = (requestData.dryRun as boolean) ?? false;
+
+	if (!searchPattern || replacement === undefined) {
+		return { error: "Search pattern and replacement string are required" };
+	}
+
+	const root = getInstanceByPath(path);
+	if (!root) return { error: `Path not found: ${path}` };
+
+	const recordingId = dryRun ? undefined : beginRecording("Find and replace in scripts");
+	const results: Record<string, unknown>[] = [];
+	let totalReplacements = 0;
+	let scriptsModified = 0;
+
+	function walkScripts(instance: Instance) {
+		if (instance.IsA("LuaSourceContainer")) {
+			const [readSuccess, source] = pcall(() => readScriptSource(instance));
+			if (!readSuccess || !typeIs(source, "string")) return;
+
+			let searchStr = searchPattern;
+			let sourceToSearch = source as string;
+			if (!caseSensitive) {
+				searchStr = searchStr.lower();
+				sourceToSearch = sourceToSearch.lower();
+			}
+
+			let matchCount = 0;
+			let searchIndex = 0;
+			while (true) {
+				const [foundStart] = string.find(sourceToSearch, searchStr, searchIndex, true);
+				if (!foundStart) break;
+				matchCount++;
+				searchIndex = foundStart + searchStr.size();
+			}
+
+			if (matchCount > 0) {
+				const scriptPath = getInstancePath(instance);
+
+				if (!dryRun) {
+					const originalSource = source as string;
+					const newParts: string[] = [];
+					let lastEnd = 0;
+					let searchSrc = caseSensitive ? originalSource : originalSource.lower();
+					let searchKey = caseSensitive ? searchPattern : searchPattern.lower();
+					let searchPos = 0;
+
+					while (true) {
+						const [foundStart] = string.find(searchSrc, searchKey, searchPos, true);
+						if (!foundStart) break;
+						newParts.push(originalSource.sub(lastEnd + 1, foundStart - 1));
+						newParts.push(replacement);
+						lastEnd = foundStart + searchKey.size() - 1;
+						searchPos = foundStart + searchKey.size();
+					}
+					newParts.push(originalSource.sub(lastEnd + 1));
+					const newSource = newParts.join("");
+
+					const ScriptEditorServiceInst = game.GetService("ScriptEditorService");
+					const [writeSuccess, writeErr] = pcall(() => {
+						const doc = ScriptEditorServiceInst.FindScriptDocument(instance);
+						if (doc) {
+							const lineCount = doc.GetLineCount();
+							const lastLineText = doc.GetLine(lineCount);
+							doc.EditTextAsync(newSource, 1, 1, lineCount, lastLineText.size() + 1);
+						} else {
+							(instance as unknown as { Source: string }).Source = newSource;
+						}
+					});
+
+					if (!writeSuccess) {
+						results.push({ scriptPath, matches: matchCount, success: false, error: tostring(writeErr) });
+						return;
+					}
+				}
+
+				totalReplacements += matchCount;
+				scriptsModified++;
+				results.push({ scriptPath, matches: matchCount, success: true });
+			}
+		}
+
+		for (const child of instance.GetChildren()) {
+			walkScripts(child);
+		}
+	}
+
+	const [success, walkErr] = pcall(() => walkScripts(root));
+
+	if (recordingId !== undefined) {
+		finishRecording(recordingId, scriptsModified > 0);
+	}
+
+	if (!success) return { error: `Failed to search scripts: ${tostring(walkErr)}` };
+
+	return {
+		search: searchPattern,
+		replacement,
+		dryRun,
+		totalReplacements,
+		scriptsModified,
+		results,
+	};
+}
+
 export = {
 	getScriptSource,
 	setScriptSource,
 	editScriptLines,
 	insertScriptLines,
 	deleteScriptLines,
+	findReplaceInScripts,
 };

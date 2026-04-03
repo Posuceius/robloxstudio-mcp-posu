@@ -46,6 +46,12 @@ const routeMap: Record<string, Handler> = {
 	"/api/smart-duplicate": InstanceHandlers.smartDuplicate,
 	"/api/mass-duplicate": InstanceHandlers.massDuplicate,
 
+	"/api/find-replace-in-scripts": ScriptHandlers.findReplaceInScripts,
+
+	"/api/get-game-stats": QueryHandlers.getGameStats,
+	"/api/get-output-log": QueryHandlers.getOutputLog,
+	"/api/get-script-dependencies": QueryHandlers.getScriptDependencies,
+
 	"/api/get-script-source": ScriptHandlers.getScriptSource,
 	"/api/set-script-source": ScriptHandlers.setScriptSource,
 	"/api/edit-script-lines": ScriptHandlers.editScriptLines,
