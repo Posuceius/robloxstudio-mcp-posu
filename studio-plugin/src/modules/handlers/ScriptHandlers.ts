@@ -351,14 +351,17 @@ function deleteScriptLines(requestData: Record<string, unknown>) {
 	return { error: `Failed to delete script lines: ${result}` };
 }
 
-function findReplaceInScripts(requestData: Record<string, unknown>) {
-	const searchPattern = requestData.search as string;
+function findAndReplaceInScripts(requestData: Record<string, unknown>) {
+	const pattern = requestData.pattern as string;
 	const replacement = requestData.replacement as string;
 	const path = (requestData.path as string) ?? "game";
 	const caseSensitive = (requestData.caseSensitive as boolean) ?? false;
+	const usePattern = (requestData.usePattern as boolean) ?? false;
+	const classFilter = requestData.classFilter as string | undefined;
 	const dryRun = (requestData.dryRun as boolean) ?? false;
+	const maxReplacements = requestData.maxReplacements as number | undefined;
 
-	if (!searchPattern || replacement === undefined) {
+	if (!pattern || replacement === undefined) {
 		return { error: "Search pattern and replacement string are required" };
 	}
 
@@ -369,46 +372,75 @@ function findReplaceInScripts(requestData: Record<string, unknown>) {
 	const results: Record<string, unknown>[] = [];
 	let totalReplacements = 0;
 	let scriptsModified = 0;
+	let hitLimit = false;
 
 	function walkScripts(instance: Instance) {
-		if (instance.IsA("LuaSourceContainer")) {
-			const [readSuccess, source] = pcall(() => readScriptSource(instance));
-			if (!readSuccess || !typeIs(source, "string")) return;
+		if (hitLimit) return;
 
-			let searchStr = searchPattern;
-			let sourceToSearch = source as string;
-			if (!caseSensitive) {
-				searchStr = searchStr.lower();
-				sourceToSearch = sourceToSearch.lower();
+		if (instance.IsA("LuaSourceContainer")) {
+			if (classFilter && !instance.ClassName.lower().find(classFilter.lower())[0]) {
+				for (const child of instance.GetChildren()) walkScripts(child);
+				return;
 			}
+
+			const [readSuccess, source] = pcall(() => readScriptSource(instance));
+			if (!readSuccess || !typeIs(source, "string")) {
+				for (const child of instance.GetChildren()) walkScripts(child);
+				return;
+			}
+
+			const originalSource = source as string;
+			const searchKey = caseSensitive ? pattern : pattern.lower();
+			const sourceToSearch = caseSensitive ? originalSource : originalSource.lower();
 
 			let matchCount = 0;
 			let searchIndex = 0;
+
 			while (true) {
-				const [foundStart] = string.find(sourceToSearch, searchStr, searchIndex, true);
+				if (maxReplacements !== undefined && totalReplacements + matchCount >= maxReplacements) {
+					hitLimit = true;
+					break;
+				}
+
+				let foundStart: number | undefined;
+				if (usePattern) {
+					[foundStart] = string.find(sourceToSearch, searchKey, searchIndex);
+				} else {
+					[foundStart] = string.find(sourceToSearch, searchKey, searchIndex, true);
+				}
+
 				if (!foundStart) break;
 				matchCount++;
-				searchIndex = foundStart + searchStr.size();
+				searchIndex = foundStart + searchKey.size();
 			}
 
 			if (matchCount > 0) {
 				const scriptPath = getInstancePath(instance);
 
 				if (!dryRun) {
-					const originalSource = source as string;
 					const newParts: string[] = [];
 					let lastEnd = 0;
-					let searchSrc = caseSensitive ? originalSource : originalSource.lower();
-					let searchKey = caseSensitive ? searchPattern : searchPattern.lower();
 					let searchPos = 0;
+					let replacementsDone = 0;
 
 					while (true) {
-						const [foundStart] = string.find(searchSrc, searchKey, searchPos, true);
-						if (!foundStart) break;
+						if (maxReplacements !== undefined && replacementsDone >= maxReplacements) break;
+
+						let foundStart: number | undefined;
+						let foundEnd: number | undefined;
+						if (usePattern) {
+							[foundStart, foundEnd] = string.find(sourceToSearch, searchKey, searchPos);
+						} else {
+							[foundStart, foundEnd] = string.find(sourceToSearch, searchKey, searchPos, true);
+							foundEnd = foundStart !== undefined ? foundStart + searchKey.size() - 1 : undefined;
+						}
+
+						if (!foundStart || !foundEnd) break;
 						newParts.push(originalSource.sub(lastEnd + 1, foundStart - 1));
 						newParts.push(replacement);
-						lastEnd = foundStart + searchKey.size() - 1;
-						searchPos = foundStart + searchKey.size();
+						lastEnd = foundEnd;
+						searchPos = foundEnd + 1;
+						replacementsDone++;
 					}
 					newParts.push(originalSource.sub(lastEnd + 1));
 					const newSource = newParts.join("");
@@ -419,6 +451,7 @@ function findReplaceInScripts(requestData: Record<string, unknown>) {
 
 					if (!writeSuccess) {
 						results.push({ scriptPath, matches: matchCount, success: false, error: tostring(writeErr) });
+						for (const child of instance.GetChildren()) walkScripts(child);
 						return;
 					}
 				}
@@ -430,6 +463,7 @@ function findReplaceInScripts(requestData: Record<string, unknown>) {
 		}
 
 		for (const child of instance.GetChildren()) {
+			if (hitLimit) return;
 			walkScripts(child);
 		}
 	}
@@ -443,11 +477,12 @@ function findReplaceInScripts(requestData: Record<string, unknown>) {
 	if (!success) return { error: `Failed to search scripts: ${tostring(walkErr)}` };
 
 	return {
-		search: searchPattern,
+		pattern,
 		replacement,
 		dryRun,
 		totalReplacements,
 		scriptsModified,
+		truncated: hitLimit,
 		results,
 	};
 }
@@ -458,5 +493,5 @@ export = {
 	editScriptLines,
 	insertScriptLines,
 	deleteScriptLines,
-	findReplaceInScripts,
+	findAndReplaceInScripts,
 };

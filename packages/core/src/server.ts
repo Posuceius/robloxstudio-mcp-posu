@@ -307,10 +307,8 @@ export class RobloxStudioMCPServer {
             return await this.tools.massGetProperty((args as any)?.paths as string[], (args as any)?.propertyName as string);
 
           case 'create_object':
-          case 'create_object_with_properties':
             return await this.tools.createObject((args as any)?.className as string, (args as any)?.parent as string, (args as any)?.name, (args as any)?.properties);
           case 'mass_create_objects':
-          case 'mass_create_objects_with_properties':
             return await this.tools.massCreateObjects((args as any)?.objects);
           case 'create_ui_tree':
             return await this.tools.createUITree((args as any)?.parentPath as string, (args as any)?.tree);
@@ -324,12 +322,6 @@ export class RobloxStudioMCPServer {
           case 'mass_duplicate':
             return await this.tools.massDuplicate((args as any)?.duplications);
 
-          case 'set_calculated_property':
-            return await this.tools.setCalculatedProperty((args as any)?.paths as string[], (args as any)?.propertyName as string, (args as any)?.formula as string, (args as any)?.variables);
-
-          case 'set_relative_property':
-            return await this.tools.setRelativeProperty((args as any)?.paths as string[], (args as any)?.propertyName as string, (args as any)?.operation, (args as any)?.value, (args as any)?.component);
-
           case 'grep_scripts':
             return await this.tools.grepScripts((args as any)?.pattern as string, {
               caseSensitive: (args as any)?.caseSensitive,
@@ -342,17 +334,20 @@ export class RobloxStudioMCPServer {
               classFilter: (args as any)?.classFilter,
             });
 
-          case 'find_replace_in_scripts':
-            return await this.tools.findReplaceInScripts((args as any)?.search as string, (args as any)?.replacement as string, {
-              path: (args as any)?.path,
+          case 'find_and_replace_in_scripts':
+            return await this.tools.findAndReplaceInScripts((args as any)?.pattern as string, (args as any)?.replacement as string, {
               caseSensitive: (args as any)?.caseSensitive,
+              usePattern: (args as any)?.usePattern,
+              path: (args as any)?.path,
+              classFilter: (args as any)?.classFilter,
               dryRun: (args as any)?.dryRun,
+              maxReplacements: (args as any)?.maxReplacements,
             });
 
           case 'get_game_stats':
             return await this.tools.getGameStats((args as any)?.path);
           case 'get_output_log':
-            return await this.tools.getOutputLog((args as any)?.maxEntries);
+            return await this.tools.getOutputLog((args as any)?.maxEntries, (args as any)?.messageType);
           case 'get_script_dependencies':
             return await this.tools.getScriptDependencies((args as any)?.instancePath as string, (args as any)?.path);
 
@@ -362,7 +357,7 @@ export class RobloxStudioMCPServer {
             return await this.tools.setScriptSource((args as any)?.instancePath as string, (args as any)?.source as string);
 
           case 'edit_script_lines':
-            return await this.tools.editScriptLines((args as any)?.instancePath as string, (args as any)?.startLine as number, (args as any)?.endLine as number, (args as any)?.newContent as string);
+            return await this.tools.editScriptLines((args as any)?.instancePath as string, (args as any)?.old_string as string, (args as any)?.new_string as string);
           case 'insert_script_lines':
             return await this.tools.insertScriptLines((args as any)?.instancePath as string, (args as any)?.afterLine as number, (args as any)?.newContent as string);
           case 'delete_script_lines':
@@ -390,14 +385,14 @@ export class RobloxStudioMCPServer {
             return await this.tools.getSelection();
 
           case 'execute_luau':
-            return await this.tools.executeLuau((args as any)?.code as string);
+            return await this.tools.executeLuau((args as any)?.code as string, (args as any)?.target);
 
           case 'start_playtest':
-            return await this.tools.startPlaytest((args as any)?.mode as string);
+            return await this.tools.startPlaytest((args as any)?.mode as string, (args as any)?.numPlayers);
           case 'stop_playtest':
             return await this.tools.stopPlaytest();
           case 'get_playtest_output':
-            return await this.tools.getPlaytestOutput();
+            return await this.tools.getPlaytestOutput((args as any)?.target);
 
           case 'export_build':
             return await this.tools.exportBuild((args as any)?.instancePath as string, (args as any)?.outputId, (args as any)?.style);
@@ -434,6 +429,32 @@ export class RobloxStudioMCPServer {
           case 'capture_screenshot':
             return await this.tools.captureScreenshot();
 
+          case 'upload_decal':
+            return await this.tools.uploadDecal((args as any)?.filePath as string, (args as any)?.displayName as string, (args as any)?.description, (args as any)?.userId, (args as any)?.groupId);
+          case 'clone_object':
+            return await this.tools.cloneObject((args as any)?.instancePath as string, (args as any)?.targetParentPath as string);
+          case 'move_object':
+            return await this.tools.moveObject((args as any)?.instancePath as string, (args as any)?.targetParentPath as string);
+          case 'rename_object':
+            return await this.tools.renameObject((args as any)?.instancePath as string, (args as any)?.newName as string);
+          case 'get_descendants':
+            return await this.tools.getDescendants((args as any)?.instancePath as string, (args as any)?.maxDepth, (args as any)?.classFilter);
+          case 'compare_instances':
+            return await this.tools.compareInstances((args as any)?.instancePathA as string, (args as any)?.instancePathB as string);
+          case 'get_script_analysis':
+            return await this.tools.getScriptAnalysis((args as any)?.instancePath as string);
+          case 'bulk_set_attributes':
+            return await this.tools.bulkSetAttributes((args as any)?.instancePath as string, (args as any)?.attributes);
+          case 'get_connected_instances':
+            return await this.tools.getConnectedInstances();
+
+          case 'simulate_mouse_input':
+            return await this.tools.simulateMouseInput((args as any)?.action as string, (args as any)?.x as number, (args as any)?.y as number, (args as any)?.button, (args as any)?.scrollDirection, (args as any)?.target);
+          case 'simulate_keyboard_input':
+            return await this.tools.simulateKeyboardInput((args as any)?.keyCode as string, (args as any)?.action, (args as any)?.duration, (args as any)?.target);
+          case 'character_navigation':
+            return await this.tools.characterNavigation((args as any)?.position, (args as any)?.instancePath, (args as any)?.waitForCompletion, (args as any)?.timeout, (args as any)?.target);
+
           default:
             throw new McpError(
               ErrorCode.MethodNotFound,
@@ -461,11 +482,12 @@ export class RobloxStudioMCPServer {
 
     // Try to bind as primary
     try {
-      primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames);
+      primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
       const result = await listenWithRetry(primaryApp, host, basePort, 5);
       httpHandle = result.server;
       boundPort = result.port;
       console.error(`HTTP server listening on ${host}:${boundPort} for Studio plugin (primary mode)`);
+      console.error(`Streamable HTTP MCP endpoint: http://localhost:${boundPort}/mcp`);
     } catch {
       // All ports in use — fall back to proxy mode
       bridgeMode = 'proxy';
@@ -481,7 +503,7 @@ export class RobloxStudioMCPServer {
         try {
           this.bridge = new BridgeService();
           this.tools = new RobloxStudioTools(this.bridge);
-          primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames);
+          primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
           const result = await listenWithRetry(primaryApp, host, basePort, 5);
           httpHandle = result.server;
           boundPort = result.port;
@@ -503,7 +525,7 @@ export class RobloxStudioMCPServer {
     let legacyHandle: http.Server | undefined;
     let legacyApp: ReturnType<typeof createHttpServer> | undefined;
     if (boundPort !== LEGACY_PORT && bridgeMode === 'primary') {
-      legacyApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames);
+      legacyApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
       try {
         const result = await listenWithRetry(legacyApp, host, LEGACY_PORT, 1);
         legacyHandle = result.server;
@@ -551,13 +573,15 @@ export class RobloxStudioMCPServer {
 
     const cleanupInterval = setInterval(() => {
       this.bridge.cleanupOldRequests();
+      this.bridge.cleanupStaleInstances();
     }, 5000);
 
-    const shutdown = () => {
+    const shutdown = async () => {
       console.error('Shutting down MCP server...');
       clearInterval(activityInterval);
       clearInterval(cleanupInterval);
       if (promotionInterval) clearInterval(promotionInterval);
+      await this.server.close().catch(() => {});
       if (httpHandle) httpHandle.close();
       if (legacyHandle) legacyHandle.close();
       process.exit(0);

@@ -20,4 +20,6 @@ export type {
   CreatorInfo,
   VotingInfo,
   ThumbnailResponse,
+  AssetUploadRequest,
+  AssetOperationResponse,
 } from './opencloud-client.js';

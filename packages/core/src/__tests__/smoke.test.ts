@@ -51,7 +51,7 @@ describe('Smoke Tests - Connection Fixes', () => {
       .post('/disconnect')
       .expect(200);
 
-    await expect(pendingPromise).rejects.toThrow('Connection closed');
+    await expect(pendingPromise).rejects.toThrow('Target instance "edit" disconnected');
   });
 
   test('Connection states should update correctly', async () => {

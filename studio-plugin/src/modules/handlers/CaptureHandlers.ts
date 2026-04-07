@@ -3,48 +3,53 @@ const AssetService = game.GetService("AssetService");
 
 const MAX_TILE_SIZE = 1024;
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const PAD_BYTE = string.byte("=")[0];
+
+const B64: number[] = [];
+for (let i = 0; i < 64; i++) {
+	B64[i] = string.byte(BASE64_CHARS, i + 1)[0];
+}
 
 function encodeBase64(buf: buffer): string {
 	const len = buffer.len(buf);
-	const parts: string[] = [];
-	let i = 0;
+	const fullTriples = math.floor(len / 3);
+	const remaining = len - fullTriples * 3;
+	const outLen = (fullTriples + (remaining > 0 ? 1 : 0)) * 4;
+	const out = buffer.create(outLen);
 
-	while (i + 2 < len) {
-		const b0 = buffer.readu8(buf, i);
-		const b1 = buffer.readu8(buf, i + 1);
-		const b2 = buffer.readu8(buf, i + 2);
-		const triplet = bit32.lshift(b0, 16) + bit32.lshift(b1, 8) + b2;
-		parts.push(
-			string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) +
-			string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) +
-			string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 6), 63) + 1, bit32.band(bit32.rshift(triplet, 6), 63) + 1) +
-			string.sub(BASE64_CHARS, bit32.band(triplet, 63) + 1, bit32.band(triplet, 63) + 1),
-		);
-		i += 3;
+	let si = 0;
+	let di = 0;
+
+	for (let t = 0; t < fullTriples; t++) {
+		const b0 = buffer.readu8(buf, si);
+		const b1 = buffer.readu8(buf, si + 1);
+		const b2 = buffer.readu8(buf, si + 2);
+
+		buffer.writeu8(out, di, B64[bit32.rshift(b0, 2)]);
+		buffer.writeu8(out, di + 1, B64[bit32.bor(bit32.lshift(bit32.band(b0, 3), 4), bit32.rshift(b1, 4))]);
+		buffer.writeu8(out, di + 2, B64[bit32.bor(bit32.lshift(bit32.band(b1, 15), 2), bit32.rshift(b2, 6))]);
+		buffer.writeu8(out, di + 3, B64[bit32.band(b2, 63)]);
+
+		si += 3;
+		di += 4;
 	}
 
-	const remaining = len - i;
 	if (remaining === 2) {
-		const b0 = buffer.readu8(buf, i);
-		const b1 = buffer.readu8(buf, i + 1);
-		const triplet = bit32.lshift(b0, 16) + bit32.lshift(b1, 8);
-		parts.push(
-			string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) +
-			string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) +
-			string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 6), 63) + 1, bit32.band(bit32.rshift(triplet, 6), 63) + 1) +
-			"=",
-		);
+		const b0 = buffer.readu8(buf, si);
+		const b1 = buffer.readu8(buf, si + 1);
+		buffer.writeu8(out, di, B64[bit32.rshift(b0, 2)]);
+		buffer.writeu8(out, di + 1, B64[bit32.bor(bit32.lshift(bit32.band(b0, 3), 4), bit32.rshift(b1, 4))]);
+		buffer.writeu8(out, di + 2, B64[bit32.lshift(bit32.band(b1, 15), 2)]);
+		buffer.writeu8(out, di + 3, PAD_BYTE);
 	} else if (remaining === 1) {
-		const b0 = buffer.readu8(buf, i);
-		const triplet = bit32.lshift(b0, 16);
-		parts.push(
-			string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) +
-			string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) +
-			"==",
-		);
+		const b0 = buffer.readu8(buf, si);
+		buffer.writeu8(out, di, B64[bit32.rshift(b0, 2)]);
+		buffer.writeu8(out, di + 1, B64[bit32.lshift(bit32.band(b0, 3), 4)]);
+		buffer.writeu8(out, di + 2, PAD_BYTE);
+		buffer.writeu8(out, di + 3, PAD_BYTE);
 	}
 
-	return parts.join("");
+	return buffer.tostring(out);
 }
 
 function readPixelsTiled(img: EditableImage, w: number, h: number): buffer {
@@ -66,7 +71,7 @@ function readPixelsTiled(img: EditableImage, w: number, h: number): buffer {
 	return fullBuf;
 }
 
-function captureScreenshot(): unknown {
+function captureScreenshotData(): unknown {
 	let contentId: string | undefined;
 
 	CaptureService.CaptureScreenshot((id: string) => {
@@ -113,6 +118,11 @@ function captureScreenshot(): unknown {
 	return { success: true, width: w, height: h, data: base64Data };
 }
 
+function captureScreenshot(): unknown {
+	return captureScreenshotData();
+}
+
 export = {
+	captureScreenshotData,
 	captureScreenshot,
 };

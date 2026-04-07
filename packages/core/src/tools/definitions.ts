@@ -547,67 +547,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 
   // === Calculated/Relative Properties ===
-  {
-    name: 'set_calculated_property',
-    category: 'write',
-    description: 'Set properties via formula (e.g. "index * 50")',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        paths: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Instance paths'
-        },
-        propertyName: {
-          type: 'string',
-          description: 'Property name'
-        },
-        formula: {
-          type: 'string',
-          description: 'Formula expression'
-        },
-        variables: {
-          type: 'object',
-          description: 'Additional formula variables'
-        }
-      },
-      required: ['paths', 'propertyName', 'formula']
-    }
-  },
-  {
-    name: 'set_relative_property',
-    category: 'write',
-    description: 'Modify properties relative to current values',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        paths: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Instance paths'
-        },
-        propertyName: {
-          type: 'string',
-          description: 'Property name'
-        },
-        operation: {
-          type: 'string',
-          enum: ['add', 'multiply', 'divide', 'subtract', 'power'],
-          description: 'Operation'
-        },
-        value: {
-          description: 'Operand value (number or object for Vector3/UDim2 components)'
-        },
-        component: {
-          type: 'string',
-          enum: ['X', 'Y', 'Z', 'XScale', 'XOffset', 'YScale', 'YOffset'],
-          description: 'Vector3/UDim2 component'
-        }
-      },
-      required: ['paths', 'propertyName', 'operation', 'value']
-    }
-  },
 
   // === Script Read/Write ===
   {
@@ -655,7 +594,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'edit_script_lines',
     category: 'write',
-    description: 'Replace a range of lines. 1-indexed, inclusive. Use numberedSource for line numbers.',
+    description: 'Replace exact text in a script. old_string must match exactly once in the script (whitespace-sensitive). Use get_script_source first to see current content.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -663,20 +602,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'string',
           description: 'Script instance path'
         },
-        startLine: {
-          type: 'number',
-          description: 'Start line (1-indexed)'
-        },
-        endLine: {
-          type: 'number',
-          description: 'End line (inclusive)'
-        },
-        newContent: {
+        old_string: {
           type: 'string',
-          description: 'Replacement content'
+          description: 'Exact text to find and replace (must be unique in the script)'
+        },
+        new_string: {
+          type: 'string',
+          description: 'Replacement text'
         }
       },
-      required: ['instancePath', 'startLine', 'endLine', 'newContent']
+      required: ['instancePath', 'old_string', 'new_string']
     }
   },
   {
@@ -899,6 +834,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         code: {
           type: 'string',
           description: 'Luau code to execute'
+        },
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
         }
       },
       required: ['code']
@@ -955,39 +894,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
 
-  // === Find and Replace ===
-  {
-    name: 'find_replace_in_scripts',
-    category: 'write',
-    description: 'Find and replace text across all scripts in one call. Supports case-insensitive matching and dry run mode to preview changes before applying.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        search: {
-          type: 'string',
-          description: 'Text to search for'
-        },
-        replacement: {
-          type: 'string',
-          description: 'Text to replace with'
-        },
-        path: {
-          type: 'string',
-          description: 'Subtree to search (e.g. "game.ServerScriptService"). Default: "game"'
-        },
-        caseSensitive: {
-          type: 'boolean',
-          description: 'Case-sensitive matching (default: false)'
-        },
-        dryRun: {
-          type: 'boolean',
-          description: 'Preview matches without making changes (default: false)'
-        }
-      },
-      required: ['search', 'replacement']
-    }
-  },
-
   // === Game Intelligence ===
   {
     name: 'get_game_stats',
@@ -1014,6 +920,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         maxEntries: {
           type: 'number',
           description: 'Maximum log entries to return (default: 100)'
+        },
+        messageType: {
+          type: 'string',
+          description: 'Filter by message type (e.g. "Enum.MessageType.MessageOutput", "Enum.MessageType.MessageWarning", "Enum.MessageType.MessageError")'
         }
       },
       required: []
@@ -1043,7 +953,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'start_playtest',
     category: 'read',
-    description: 'Start playtest. Captures print/warn/error via LogService. Poll with get_playtest_output, end with stop_playtest.',
+    description: 'Start playtest. Captures print/warn/error via LogService. Poll with get_playtest_output, end with stop_playtest. Use numPlayers for multi-client testing (server + N clients).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1051,6 +961,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'string',
           enum: ['play', 'run'],
           description: 'Play mode'
+        },
+        numPlayers: {
+          type: 'number',
+          description: 'Number of client players (1-8). Triggers server + clients mode via TestService.'
         }
       },
       required: ['mode']
@@ -1071,7 +985,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: 'Poll output buffer without stopping. Returns isRunning and captured messages.',
     inputSchema: {
       type: 'object',
-      properties: {}
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
+        }
+      }
     }
   },
 
@@ -1142,12 +1061,28 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         parts: {
           type: 'array',
-          description: 'Array of part arrays. Each: [posX, posY, posZ, sizeX, sizeY, sizeZ, rotX, rotY, rotZ, paletteKey, shape?, transparency?]. Shapes: Block (default), Wedge, Cylinder, Ball, CornerWedge.',
+          description: 'Array of parts. Object format: {position:[x,y,z], size:[x,y,z], rotation:[x,y,z], paletteKey, shape?, transparency?}. Tuple format [posX,posY,posZ,sizeX,sizeY,sizeZ,rotX,rotY,rotZ,paletteKey,shape?,transparency?] also accepted.',
           items: {
-            type: 'array',
-            items: {
-              anyOf: [{ type: 'number' }, { type: 'string' }]
-            }
+            anyOf: [
+              {
+                type: 'object',
+                additionalProperties: false,
+                required: ['position', 'size', 'rotation', 'paletteKey'],
+                properties: {
+                  position: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+                  size: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+                  rotation: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+                  paletteKey: { type: 'string', minLength: 1 },
+                  shape: { type: 'string', enum: ['Block', 'Wedge', 'Cylinder', 'Ball', 'CornerWedge'] },
+                  transparency: { type: 'number', minimum: 0, maximum: 1 }
+                }
+              },
+              {
+                type: 'array',
+                minItems: 10,
+                items: { anyOf: [{ type: 'number' }, { type: 'string' }] }
+              }
+            ]
           }
         },
         bounds: {
@@ -1499,6 +1434,338 @@ part(0,2,0,2,1,1,"b")`,
     inputSchema: {
       type: 'object',
       properties: {},
+    }
+  },
+
+  // === Input Simulation ===
+  {
+    name: 'simulate_mouse_input',
+    category: 'write',
+    description: 'Simulate mouse input in the Roblox Studio viewport via VirtualInputManager. Use during playtest to click UI buttons, interact with objects, or navigate menus. Coordinates are viewport pixels (top-left is 0,0). Use capture_screenshot to identify UI element positions before clicking.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['click', 'mouseDown', 'mouseUp', 'move', 'scroll'],
+          description: 'Mouse action to perform. "click" does mouseDown + short delay + mouseUp.'
+        },
+        x: {
+          type: 'number',
+          description: 'Viewport pixel X coordinate'
+        },
+        y: {
+          type: 'number',
+          description: 'Viewport pixel Y coordinate'
+        },
+        button: {
+          type: 'string',
+          enum: ['Left', 'Right', 'Middle'],
+          description: 'Mouse button (default: Left)'
+        },
+        scrollDirection: {
+          type: 'string',
+          enum: ['up', 'down'],
+          description: 'Scroll direction (only for "scroll" action)'
+        },
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
+        }
+      },
+      required: ['action', 'x', 'y']
+    }
+  },
+  {
+    name: 'simulate_keyboard_input',
+    category: 'write',
+    description: 'Simulate keyboard input via VirtualInputManager. Use during playtest for character movement (W/A/S/D), jumping (Space), interactions (E), or any key-driven action. For sustained movement, use "press" to hold and "release" to let go.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        keyCode: {
+          type: 'string',
+          description: 'Enum.KeyCode name: "W", "A", "S", "D", "Space", "E", "F", "LeftShift", "LeftControl", "Return", "Tab", "Escape", "One", "Two", etc.'
+        },
+        action: {
+          type: 'string',
+          enum: ['press', 'release', 'tap'],
+          description: '"tap" (default) = press + wait + release. "press" = key down only. "release" = key up only.'
+        },
+        duration: {
+          type: 'number',
+          description: 'Hold duration in seconds for "tap" action (default: 0.1). Use longer values for sustained input like walking.'
+        },
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
+        }
+      },
+      required: ['keyCode']
+    }
+  },
+
+  // === Character Navigation ===
+  {
+    name: 'character_navigation',
+    category: 'write',
+    description: 'Move the player character to a target position or instance during playtest. Uses PathfindingService for automatic navigation around obstacles, falling back to direct movement. Requires an active playtest in "play" mode. Does NOT simulate player input - moves the character directly.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        position: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Target world position [x, y, z]. Either this or instancePath is required.'
+        },
+        instancePath: {
+          type: 'string',
+          description: 'Instance to navigate to (dot notation). The character walks to its Position. Either this or position is required.'
+        },
+        waitForCompletion: {
+          type: 'boolean',
+          description: 'Wait for the character to arrive before returning (default: true)'
+        },
+        timeout: {
+          type: 'number',
+          description: 'Max seconds to wait for navigation to complete (default: 25)'
+        },
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
+        }
+      }
+    }
+  },
+
+  // === Instance Operations ===
+  {
+    name: 'clone_object',
+    category: 'write',
+    description: 'Clone an instance to a new parent location. Creates a deep copy of the instance and all its descendants.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path of the instance to clone'
+        },
+        targetParentPath: {
+          type: 'string',
+          description: 'Path of the parent to place the clone under'
+        }
+      },
+      required: ['instancePath', 'targetParentPath']
+    }
+  },
+  {
+    name: 'move_object',
+    category: 'write',
+    description: 'Move (reparent) an instance to a new parent location. Preserves all children and properties.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path of the instance to move'
+        },
+        targetParentPath: {
+          type: 'string',
+          description: 'Path of the new parent'
+        }
+      },
+      required: ['instancePath', 'targetParentPath']
+    }
+  },
+  {
+    name: 'rename_object',
+    category: 'write',
+    description: 'Rename an instance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path of the instance to rename'
+        },
+        newName: {
+          type: 'string',
+          description: 'New name for the instance'
+        }
+      },
+      required: ['instancePath', 'newName']
+    }
+  },
+
+  // === Descendants & Comparison ===
+  {
+    name: 'get_descendants',
+    category: 'read',
+    description: 'Get all descendants of an instance recursively with depth info. More efficient than repeated get_instance_children calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Root instance path'
+        },
+        maxDepth: {
+          type: 'number',
+          description: 'Maximum recursion depth (default: 10)'
+        },
+        classFilter: {
+          type: 'string',
+          description: 'Only include instances of this class (uses IsA, so "BasePart" matches Part, MeshPart, etc.)'
+        }
+      },
+      required: ['instancePath']
+    }
+  },
+  {
+    name: 'compare_instances',
+    category: 'read',
+    description: 'Diff two instances by comparing their properties. Useful for debugging why a duplicate behaves differently.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePathA: {
+          type: 'string',
+          description: 'First instance path'
+        },
+        instancePathB: {
+          type: 'string',
+          description: 'Second instance path'
+        }
+      },
+      required: ['instancePathA', 'instancePathB']
+    }
+  },
+
+  // === Script Analysis ===
+  {
+    name: 'get_script_analysis',
+    category: 'read',
+    description: 'Run syntax analysis on Luau scripts using loadstring. Detects compile errors with line numbers. Pass a script path to analyze one script, or a container path to analyze all scripts under it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Instance path - either a script or a container whose descendant scripts will be analyzed'
+        }
+      },
+      required: ['instancePath']
+    }
+  },
+
+  // === Bulk Attributes ===
+  {
+    name: 'bulk_set_attributes',
+    category: 'write',
+    description: 'Set multiple attributes on an instance in a single call. More efficient than repeated set_attribute calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Instance path'
+        },
+        attributes: {
+          type: 'object',
+          description: 'Map of attribute names to values. Supports Vector3, Color3, UDim2 via _type convention.'
+        }
+      },
+      required: ['instancePath', 'attributes']
+    }
+  },
+
+  // === Multi-Instance ===
+  {
+    name: 'get_connected_instances',
+    category: 'read',
+    description: 'List all connected plugin instances with their roles. Use during multi-client playtest to discover server and client instances for targeted commands.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+
+  // === Asset Upload ===
+  {
+    name: 'upload_decal',
+    category: 'write',
+    description: 'Upload an image file as a Decal asset to Roblox. Reads the file from disk, uploads via Open Cloud API, polls for completion, and returns the new asset ID. Requires ROBLOX_OPEN_CLOUD_API_KEY env var with asset:write scope. Also requires ROBLOX_CREATOR_USER_ID or ROBLOX_CREATOR_GROUP_ID env var (or pass userId/groupId as parameters).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: {
+          type: 'string',
+          description: 'Absolute path to the image file on disk (PNG, JPG, BMP, or TGA)'
+        },
+        displayName: {
+          type: 'string',
+          description: 'Display name for the decal asset (max 50 characters)'
+        },
+        description: {
+          type: 'string',
+          description: 'Description for the decal asset (default: empty string)'
+        },
+        userId: {
+          type: 'string',
+          description: 'Roblox user ID for the asset creator. Overrides ROBLOX_CREATOR_USER_ID env var.'
+        },
+        groupId: {
+          type: 'string',
+          description: 'Roblox group ID for the asset creator. Overrides ROBLOX_CREATOR_GROUP_ID env var. Takes precedence over userId if both provided.'
+        }
+      },
+      required: ['filePath', 'displayName']
+    }
+  },
+
+  // === Find and Replace ===
+  {
+    name: 'find_and_replace_in_scripts',
+    category: 'write',
+    description: 'Find and replace text across all scripts in the game. Supports literal and Lua pattern matching. Use dryRun to preview changes before applying. Pairs with grep_scripts for search-only operations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'Text or Lua pattern to find'
+        },
+        replacement: {
+          type: 'string',
+          description: 'Replacement text. When usePattern is true, supports Lua captures (%1, %2, etc.).'
+        },
+        caseSensitive: {
+          type: 'boolean',
+          description: 'Case-sensitive matching (default: false). Must be true when usePattern is true.'
+        },
+        usePattern: {
+          type: 'boolean',
+          description: 'Use Lua pattern matching instead of literal (default: false). Requires caseSensitive: true.'
+        },
+        path: {
+          type: 'string',
+          description: 'Limit scope to a subtree (e.g. "game.ServerScriptService")'
+        },
+        classFilter: {
+          type: 'string',
+          enum: ['Script', 'LocalScript', 'ModuleScript'],
+          description: 'Only search scripts of this class type'
+        },
+        dryRun: {
+          type: 'boolean',
+          description: 'Preview changes without applying them (default: false)'
+        },
+        maxReplacements: {
+          type: 'number',
+          description: 'Safety limit on total replacements (default: 1000)'
+        }
+      },
+      required: ['pattern', 'replacement']
     }
   },
 ];

@@ -53,6 +53,33 @@ async function download(url: string, dest: string, redirects = 0): Promise<void>
   });
 }
 
+async function fetchJson(url: string): Promise<unknown> {
+  const res = await httpsGet(url);
+  if (res.statusCode !== 200) {
+    throw new Error(`GitHub API returned HTTP ${res.statusCode}`);
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of res) {
+    chunks.push(chunk as Buffer);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString());
+}
+
+async function findDevRelease(): Promise<{ tag_name: string; assets: { name: string; browser_download_url: string }[] }> {
+  const releases = await fetchJson(`https://api.github.com/repos/${REPO}/releases?per_page=20`) as {
+    tag_name: string;
+    prerelease: boolean;
+    assets: { name: string; browser_download_url: string }[];
+  }[];
+  const prerelease = releases.find(
+    (r) => r.prerelease && r.assets.some((a) => a.name === ASSET_NAME),
+  );
+  if (!prerelease) {
+    throw new Error(`No prerelease found with ${ASSET_NAME}`);
+  }
+  return prerelease;
+}
+
 export async function installPlugin(): Promise<void> {
   const pluginsFolder = getPluginsFolder();
 
@@ -60,20 +87,16 @@ export async function installPlugin(): Promise<void> {
     mkdirSync(pluginsFolder, { recursive: true });
   }
 
-  console.log('Fetching latest release...');
-  const res = await httpsGet(`https://api.github.com/repos/${REPO}/releases/latest`);
+  const dev = process.argv.includes('--dev');
+  console.log(dev ? 'Fetching latest dev prerelease...' : 'Fetching latest release...');
+  const release = dev
+    ? await findDevRelease()
+    : await fetchJson(`https://api.github.com/repos/${REPO}/releases/latest`) as {
+        tag_name: string;
+        assets: { name: string; browser_download_url: string }[];
+      };
 
-  if (res.statusCode !== 200) {
-    throw new Error(`GitHub API returned HTTP ${res.statusCode}`);
-  }
-
-  const chunks: Buffer[] = [];
-  for await (const chunk of res) {
-    chunks.push(chunk as Buffer);
-  }
-  const release = JSON.parse(Buffer.concat(chunks).toString());
-
-  const asset = release.assets?.find((a: { name: string }) => a.name === ASSET_NAME);
+  const asset = release.assets?.find((a) => a.name === ASSET_NAME);
   if (!asset) {
     throw new Error(`${ASSET_NAME} not found in release ${release.tag_name}`);
   }

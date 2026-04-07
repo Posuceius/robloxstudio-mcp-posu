@@ -11,7 +11,17 @@ import TestHandlers from "./handlers/TestHandlers";
 import BuildHandlers from "./handlers/BuildHandlers";
 import AssetHandlers from "./handlers/AssetHandlers";
 import CaptureHandlers from "./handlers/CaptureHandlers";
-import { Connection, RequestPayload, PollResponse } from "../types";
+import InputHandlers from "./handlers/InputHandlers";
+import { Connection, RequestPayload, PollResponse, ReadyResponse } from "../types";
+
+const instanceId = HttpService.GenerateGUID(false);
+let assignedRole: string | undefined;
+
+function detectRole(): string {
+	if (!RunService.IsRunMode()) return "edit";
+	if (RunService.IsServer()) return "server";
+	return "client";
+}
 
 type Handler = (data: Record<string, unknown>) => unknown;
 
@@ -28,6 +38,8 @@ const routeMap: Record<string, Handler> = {
 	"/api/class-info": QueryHandlers.getClassInfo,
 	"/api/project-structure": QueryHandlers.getProjectStructure,
 	"/api/grep-scripts": QueryHandlers.grepScripts,
+	"/api/get-descendants": QueryHandlers.getDescendants,
+	"/api/compare-instances": QueryHandlers.compareInstances,
 	"/api/get-ui-tree": QueryHandlers.getUITree,
 	"/api/extract-ui-style": QueryHandlers.extractUIStyle,
 
@@ -35,18 +47,15 @@ const routeMap: Record<string, Handler> = {
 	"/api/set-properties": PropertyHandlers.setProperties,
 	"/api/mass-set-property": PropertyHandlers.massSetProperty,
 	"/api/mass-get-property": PropertyHandlers.massGetProperty,
-	"/api/set-calculated-property": PropertyHandlers.setCalculatedProperty,
-	"/api/set-relative-property": PropertyHandlers.setRelativeProperty,
 
 	"/api/create-object": InstanceHandlers.createObject,
-	"/api/mass-create-objects": InstanceHandlers.massCreateObjects,
-	"/api/mass-create-objects-with-properties": InstanceHandlers.massCreateObjectsWithProperties,
 	"/api/create-ui-tree": InstanceHandlers.createUITree,
+	"/api/mass-create-objects": InstanceHandlers.massCreateObjects,
 	"/api/delete-object": InstanceHandlers.deleteObject,
 	"/api/smart-duplicate": InstanceHandlers.smartDuplicate,
 	"/api/mass-duplicate": InstanceHandlers.massDuplicate,
-
-	"/api/find-replace-in-scripts": ScriptHandlers.findReplaceInScripts,
+	"/api/clone-object": InstanceHandlers.cloneObject,
+	"/api/move-object": InstanceHandlers.moveObject,
 
 	"/api/get-game-stats": QueryHandlers.getGameStats,
 	"/api/get-output-log": QueryHandlers.getOutputLog,
@@ -70,10 +79,12 @@ const routeMap: Record<string, Handler> = {
 	"/api/execute-luau": MetadataHandlers.executeLuau,
 	"/api/undo": MetadataHandlers.undo,
 	"/api/redo": MetadataHandlers.redo,
+	"/api/bulk-set-attributes": MetadataHandlers.bulkSetAttributes,
 
 	"/api/start-playtest": TestHandlers.startPlaytest,
 	"/api/stop-playtest": TestHandlers.stopPlaytest,
 	"/api/get-playtest-output": TestHandlers.getPlaytestOutput,
+	"/api/character-navigation": TestHandlers.characterNavigation,
 
 	"/api/export-build": BuildHandlers.exportBuild,
 	"/api/import-build": BuildHandlers.importBuild,
@@ -84,6 +95,11 @@ const routeMap: Record<string, Handler> = {
 	"/api/preview-asset": AssetHandlers.previewAsset,
 
 	"/api/capture-screenshot": CaptureHandlers.captureScreenshot,
+	"/api/simulate-mouse-input": InputHandlers.simulateMouseInput,
+	"/api/simulate-keyboard-input": InputHandlers.simulateKeyboardInput,
+
+	"/api/find-and-replace-in-scripts": ScriptHandlers.findAndReplaceInScripts,
+	"/api/get-script-analysis": ScriptHandlers.getScriptAnalysis,
 };
 
 function processRequest(request: RequestPayload): unknown {
@@ -126,7 +142,7 @@ function pollForRequests(connIndex: number) {
 
 	const [success, result] = pcall(() => {
 		return HttpService.RequestAsync({
-			Url: `${conn.serverUrl}/poll`,
+			Url: `${conn.serverUrl}/poll?instanceId=${instanceId}`,
 			Method: "GET",
 			Headers: { "Content-Type": "application/json" },
 		});
@@ -145,57 +161,12 @@ function pollForRequests(connIndex: number) {
 		const data = HttpService.JSONDecode(result.Body) as PollResponse;
 		const mcpConnected = data.mcpConnected === true;
 		conn.lastHttpOk = true;
+		conn.lastMcpOk = mcpConnected;
 
 		if (connIndex === State.getActiveTabIndex()) {
-			const el = ui;
-			el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
-			el.step1Label.Text = "HTTP server (OK)";
-
-			if (mcpConnected && !el.statusLabel.Text.find("Connected")[0]) {
-				el.statusLabel.Text = "Connected";
-				el.statusLabel.TextColor3 = Color3.fromRGB(34, 197, 94);
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
-				el.statusText.Text = "ONLINE";
-				el.detailStatusLabel.Text = "HTTP: OK  MCP: OK";
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(34, 197, 94);
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
-				el.step2Label.Text = "MCP bridge (OK)";
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
-				el.step3Label.Text = "Commands (OK)";
-				conn.mcpWaitStartTime = undefined;
-				el.troubleshootLabel.Visible = false;
-				UI.stopPulseAnimation();
-			} else if (!mcpConnected) {
-				el.statusLabel.Text = "Waiting for MCP server";
-				el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusText.Text = "WAITING";
-				el.detailStatusLabel.Text = "HTTP: OK  MCP: ...";
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.step2Label.Text = "MCP bridge (waiting...)";
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.step3Label.Text = "Commands (waiting...)";
-				if (conn.mcpWaitStartTime === undefined) {
-					conn.mcpWaitStartTime = tick();
-				}
-				const elapsed = tick() - (conn.mcpWaitStartTime ?? tick());
-				el.troubleshootLabel.Visible = elapsed > 8;
-				if (elapsed > 3 && elapsed % 5 < conn.pollInterval) {
-					task.spawn(() => {
-						const discovered = discoverPort();
-						if (discovered !== undefined && discovered !== conn.port) {
-							conn.port = discovered;
-							conn.serverUrl = `http://localhost:${discovered}`;
-							if (connIndex === State.getActiveTabIndex()) {
-								UI.getElements().urlInput.Text = conn.serverUrl;
-							}
-						}
-					});
-				}
-				UI.startPulseAnimation();
+			UI.updateUIState();
+			if (!mcpConnected && conn.mcpWaitStartTime === undefined) {
+				conn.mcpWaitStartTime = tick();
 			}
 		}
 
@@ -219,103 +190,10 @@ function pollForRequests(connIndex: number) {
 			);
 		}
 
-		if (conn.consecutiveFailures === 5 || conn.consecutiveFailures % 20 === 0) {
-			task.spawn(() => {
-				const discovered = discoverPort();
-				if (discovered !== undefined && discovered !== conn.port) {
-					conn.port = discovered;
-					conn.serverUrl = `http://localhost:${discovered}`;
-					conn.consecutiveFailures = 0;
-					conn.currentRetryDelay = 0.5;
-					if (connIndex === State.getActiveTabIndex()) {
-						UI.getElements().urlInput.Text = conn.serverUrl;
-					}
-				}
-			});
-		}
-
 		if (connIndex === State.getActiveTabIndex()) {
-			const el = ui;
-			if (conn.consecutiveFailures >= conn.maxFailuresBeforeError) {
-				el.statusLabel.Text = "Server unavailable";
-				el.statusLabel.TextColor3 = Color3.fromRGB(239, 68, 68);
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
-				el.statusText.Text = "ERROR";
-				el.detailStatusLabel.Text = "HTTP: X  MCP: X";
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(239, 68, 68);
-				el.step1Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
-				el.step1Label.Text = "HTTP server (error)";
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
-				el.step2Label.Text = "MCP bridge (error)";
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
-				el.step3Label.Text = "Commands (error)";
-				conn.mcpWaitStartTime = undefined;
-				el.troubleshootLabel.Visible = false;
-				UI.stopPulseAnimation();
-			} else if (conn.consecutiveFailures > 5) {
-				const waitTime = math.ceil(conn.currentRetryDelay);
-				el.statusLabel.Text = `Retrying (${waitTime}s)`;
-				el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusText.Text = "RETRY";
-				el.detailStatusLabel.Text = "HTTP: ...  MCP: ...";
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
-				el.step1Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.step1Label.Text = "HTTP server (retrying...)";
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.step2Label.Text = "MCP bridge (retrying...)";
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.step3Label.Text = "Commands (retrying...)";
-				conn.mcpWaitStartTime = undefined;
-				el.troubleshootLabel.Visible = false;
-				UI.startPulseAnimation();
-			} else if (conn.consecutiveFailures > 1) {
-				el.statusLabel.Text = `Connecting (attempt ${conn.consecutiveFailures})`;
-				el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.statusText.Text = "CONNECTING";
-				el.detailStatusLabel.Text = "HTTP: ...  MCP: ...";
-				el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
-				el.step1Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.step1Label.Text = "HTTP server (connecting...)";
-				el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.step2Label.Text = "MCP bridge (connecting...)";
-				el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
-				el.step3Label.Text = "Commands (connecting...)";
-				conn.mcpWaitStartTime = undefined;
-				el.troubleshootLabel.Visible = false;
-				UI.startPulseAnimation();
-			}
+			UI.updateUIState();
 		}
 	}
-}
-
-function discoverPort(): number | undefined {
-	let firstActivePort: number | undefined;
-	for (let offset = 0; offset < 5; offset++) {
-		const port = State.BASE_PORT + offset;
-		const [success, result] = pcall(() => {
-			return HttpService.RequestAsync({
-				Url: `http://localhost:${port}/status`,
-				Method: "GET",
-				Headers: { "Content-Type": "application/json" },
-			});
-		});
-
-		if (success && result.Success) {
-			const [ok, data] = pcall(() =>
-				HttpService.JSONDecode(result.Body) as { mcpServerActive: boolean; pluginConnected: boolean },
-			);
-			if (ok && data.mcpServerActive) {
-				if (!data.pluginConnected) return port;
-				if (firstActivePort === undefined) firstActivePort = port;
-			}
-		}
-	}
-	return firstActivePort;
 }
 
 function activatePlugin(connIndex?: number) {
@@ -334,20 +212,12 @@ function activatePlugin(connIndex?: number) {
 		conn.serverUrl = ui.urlInput.Text;
 		const [portStr] = conn.serverUrl.match(":(%d+)$");
 		if (portStr) conn.port = tonumber(portStr) ?? conn.port;
+		UI.updateTabLabel(idx);
 		UI.updateUIState();
 	}
 	UI.updateTabDot(idx);
 
 	task.spawn(() => {
-		const discoveredPort = discoverPort();
-		if (discoveredPort !== undefined) {
-			conn.port = discoveredPort;
-			conn.serverUrl = `http://localhost:${discoveredPort}`;
-			if (idx === State.getActiveTabIndex()) {
-				ui.urlInput.Text = conn.serverUrl;
-			}
-		}
-
 		if (!conn.heartbeatConnection) {
 			conn.heartbeatConnection = RunService.Heartbeat.Connect(() => {
 				const now = tick();
@@ -359,14 +229,20 @@ function activatePlugin(connIndex?: number) {
 			});
 		}
 
-		pcall(() => {
-			HttpService.RequestAsync({
+		const [readyOk, readyResult] = pcall(() => {
+			return HttpService.RequestAsync({
 				Url: `${conn.serverUrl}/ready`,
 				Method: "POST",
 				Headers: { "Content-Type": "application/json" },
-				Body: HttpService.JSONEncode({ pluginReady: true, timestamp: tick() }),
+				Body: HttpService.JSONEncode({ instanceId, role: detectRole(), pluginReady: true, timestamp: tick() }),
 			});
 		});
+		if (readyOk && readyResult.Success) {
+			const [parseOk, readyData] = pcall(() => HttpService.JSONDecode(readyResult.Body) as ReadyResponse);
+			if (parseOk && readyData.assignedRole) {
+				assignedRole = readyData.assignedRole;
+			}
+		}
 	});
 }
 
@@ -376,6 +252,7 @@ function deactivatePlugin(connIndex?: number) {
 	if (!conn) return;
 
 	conn.isActive = false;
+	conn.lastMcpOk = false;
 
 	if (idx === State.getActiveTabIndex()) UI.updateUIState();
 	UI.updateTabDot(idx);
@@ -385,7 +262,7 @@ function deactivatePlugin(connIndex?: number) {
 			Url: `${conn.serverUrl}/disconnect`,
 			Method: "POST",
 			Headers: { "Content-Type": "application/json" },
-			Body: HttpService.JSONEncode({ timestamp: tick() }),
+			Body: HttpService.JSONEncode({ instanceId, timestamp: tick() }),
 		});
 	});
 

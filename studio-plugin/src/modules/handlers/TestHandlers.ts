@@ -54,6 +54,7 @@ function cleanupStopListener() {
 
 function startPlaytest(requestData: Record<string, unknown>) {
 	const mode = requestData.mode as string | undefined;
+	const numPlayers = (requestData.numPlayers as number) ?? 1;
 
 	if (mode !== "play" && mode !== "run") {
 		return { error: 'mode must be "play" or "run"' };
@@ -87,7 +88,7 @@ function startPlaytest(requestData: Record<string, unknown>) {
 	task.spawn(() => {
 		const [ok, result] = pcall(() => {
 			if (mode === "play") {
-				return StudioTestService.ExecutePlayModeAsync({});
+				return StudioTestService.ExecutePlayModeAsync({ NumPlayers: numPlayers });
 			}
 			return StudioTestService.ExecuteRunModeAsync({});
 		});
@@ -135,8 +136,61 @@ function getPlaytestOutput(_requestData: Record<string, unknown>) {
 	};
 }
 
+function characterNavigation(requestData: Record<string, unknown>) {
+	const action = requestData.action as string;
+	const target = requestData.target as string | undefined;
+
+	if (!action) return { error: "action is required" };
+
+	const Players = game.GetService("Players");
+	const localPlayer = Players.LocalPlayer;
+	if (!localPlayer) return { error: "No local player found - must be in Play mode" };
+
+	const character = localPlayer.Character;
+	if (!character) return { error: "Player has no character" };
+
+	const humanoid = character.FindFirstChildOfClass("Humanoid");
+	if (!humanoid) return { error: "Character has no Humanoid" };
+
+	const [success, result] = pcall(() => {
+		if (action === "moveTo") {
+			if (!target) error("target path is required for moveTo");
+			const targetInstance = (game as unknown as { GetService(name: string): Instance }).GetService
+				? game.FindFirstChild(target, true)
+				: undefined;
+
+			const rootPart = character.FindFirstChild("HumanoidRootPart") as BasePart | undefined;
+			if (!rootPart) error("Character has no HumanoidRootPart");
+
+			if (targetInstance && targetInstance.IsA("BasePart")) {
+				humanoid.MoveTo(targetInstance.Position, targetInstance);
+			} else {
+				error(`Target not found or not a BasePart: ${target}`);
+			}
+			return { success: true, action, message: `Moving character to ${target}` };
+		} else if (action === "jump") {
+			humanoid.Jump = true;
+			return { success: true, action, message: "Character jump triggered" };
+		} else if (action === "stop") {
+			humanoid.MoveTo(rootPart(character) ?? humanoid.RootPart?.Position ?? new Vector3(0, 0, 0));
+			return { success: true, action, message: "Character movement stopped" };
+		} else {
+			error(`Unknown action: ${action}`);
+		}
+	});
+
+	if (success) return result;
+	return { error: `characterNavigation failed: ${tostring(result)}` };
+}
+
+function rootPart(character: Model): Vector3 {
+	const root = character.FindFirstChild("HumanoidRootPart") as BasePart | undefined;
+	return root?.Position ?? new Vector3(0, 0, 0);
+}
+
 export = {
 	startPlaytest,
 	stopPlaytest,
 	getPlaytestOutput,
+	characterNavigation,
 };

@@ -8,6 +8,19 @@ if (process.argv.includes('--install-plugin')) {
     process.exitCode = 1;
   });
 } else {
+  const flagValue = (flag: string): string | undefined => {
+    const idx = process.argv.indexOf(flag);
+    return idx !== -1 && idx + 1 < process.argv.length ? process.argv[idx + 1] : undefined;
+  };
+
+  const openCloudKey = flagValue('--open-cloud-key');
+  const creatorId = flagValue('--creator-id');
+  const creatorGroupId = flagValue('--creator-group-id');
+
+  if (openCloudKey) process.env.ROBLOX_OPEN_CLOUD_API_KEY = openCloudKey;
+  if (creatorId) process.env.ROBLOX_CREATOR_USER_ID = creatorId;
+  if (creatorGroupId) process.env.ROBLOX_CREATOR_GROUP_ID = creatorGroupId;
+
   const require = createRequire(import.meta.url);
   const { version: VERSION } = require('../package.json');
 
