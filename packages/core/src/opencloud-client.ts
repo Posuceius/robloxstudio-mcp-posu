@@ -72,6 +72,35 @@ export interface ThumbnailResponse {
   imageUrl?: string;
 }
 
+export interface AssetUploadRequest {
+  assetType: 'Decal' | 'Audio' | 'Model';
+  displayName: string;
+  description: string;
+  creationContext: {
+    creator: {
+      userId?: string;
+      groupId?: string;
+    };
+  };
+}
+
+export interface AssetOperationResponse {
+  path: string;
+  done: boolean;
+  response?: {
+    '@type': string;
+    assetId: string;
+    displayName: string;
+    assetType: string;
+    revisionId?: string;
+    revisionCreateTime?: string;
+  };
+  error?: {
+    code: number;
+    message: string;
+  };
+}
+
 export class OpenCloudClient {
   private apiKey: string;
   private baseUrl: string;
@@ -242,5 +271,131 @@ export class OpenCloudClient {
     }
 
     return result;
+  }
+
+  async createAsset(
+    uploadRequest: AssetUploadRequest,
+    fileContent: Buffer,
+    fileName: string
+  ): Promise<AssetOperationResponse> {
+    const formData = new FormData();
+    formData.append('request', JSON.stringify(uploadRequest));
+    formData.append(
+      'fileContent',
+      new Blob([new Uint8Array(fileContent)], { type: this.getMimeType(fileName) }),
+      fileName
+    );
+
+    const operation = await this.requestMultipart<AssetOperationResponse>(
+      '/assets/v1/assets',
+      formData
+    );
+    if (operation.done) {
+      if (operation.error) {
+        throw new Error(`Asset upload failed: ${operation.error.message}`);
+      }
+      return operation;
+    }
+    return this.pollOperation(operation.path);
+  }
+
+  private getMimeType(fileName: string): string {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      bmp: 'image/bmp',
+      tga: 'image/x-tga',
+      mp3: 'audio/mpeg',
+      wav: 'audio/wav',
+      ogg: 'audio/ogg',
+      rbxm: 'application/octet-stream',
+      rbxmx: 'application/xml',
+      fbx: 'model/fbx',
+    };
+    if (!ext || !mimeTypes[ext]) {
+      throw new Error(`Unsupported file format: ${fileName}. Supported: PNG, JPG, BMP, TGA (images), MP3, WAV, OGG (audio), RBXM, RBXMX, FBX (models)`);
+    }
+    return mimeTypes[ext];
+  }
+
+  private async requestMultipart<T>(
+    endpoint: string,
+    formData: FormData
+  ): Promise<T> {
+    if (!this.apiKey) {
+      throw new Error(
+        'Open Cloud API key not configured. Set ROBLOX_OPEN_CLOUD_API_KEY environment variable.'
+      );
+    }
+
+    const url = `${this.baseUrl}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'x-api-key': this.apiKey },
+        body: formData,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        let errorMessage: string;
+        try {
+          const errorJson = JSON.parse(errorBody);
+          errorMessage = errorJson.detail || errorJson.message || errorBody;
+        } catch {
+          errorMessage = errorBody;
+        }
+
+        if (response.status === 401) {
+          throw new Error('Invalid or expired API key');
+        } else if (response.status === 403) {
+          throw new Error(`API key lacks required permissions: ${errorMessage}`);
+        } else if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again later.');
+        } else {
+          throw new Error(`Open Cloud API error (${response.status}): ${errorMessage}`);
+        }
+      }
+
+      return (await response.json()) as T;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Request timed out');
+        }
+        throw error;
+      }
+      throw new Error(`Unknown error: ${String(error)}`);
+    }
+  }
+
+  private async pollOperation(
+    operationPath: string,
+    maxAttempts = 15,
+    intervalMs = 2000
+  ): Promise<AssetOperationResponse> {
+    const operationId = operationPath.replace('operations/', '');
+    for (let i = 0; i < maxAttempts; i++) {
+      const result = await this.request<AssetOperationResponse>(
+        `/assets/v1/operations/${operationId}`
+      );
+      if (result.error) {
+        throw new Error(`Asset upload failed: ${result.error.message}`);
+      }
+      if (result.done) return result;
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(
+      `Asset upload timed out after ${(maxAttempts * intervalMs) / 1000}s. Operation ID: ${operationId}`
+    );
   }
 }

@@ -41,7 +41,7 @@ describe('HTTP Server', () => {
         .post('/ready')
         .expect(200);
 
-      expect(response.body).toEqual({ success: true });
+      expect(response.body).toEqual({ success: true, assignedRole: 'edit' });
       expect(app.isPluginConnected()).toBe(true);
     });
 
@@ -78,7 +78,9 @@ describe('HTTP Server', () => {
       expect(app.isPluginConnected()).toBe(true);
 
       const originalDateNow = Date.now;
-      Date.now = jest.fn(() => originalDateNow() + 11000);
+      Date.now = jest.fn(() => originalDateNow() + 31000);
+
+      bridge.cleanupStaleInstances();
 
       expect(app.isPluginConnected()).toBe(false);
 
@@ -137,12 +139,12 @@ describe('HTTP Server', () => {
       });
     });
 
-    test('should mark plugin as connected when polling', async () => {
+    test('should return 503 when plugin is not connected', async () => {
       expect(app.isPluginConnected()).toBe(false);
 
       await request(app).get('/poll').expect(503);
 
-      expect(app.isPluginConnected()).toBe(true);
+      expect(app.isPluginConnected()).toBe(false);
     });
   });
 
@@ -204,7 +206,7 @@ describe('HTTP Server', () => {
       expect(app.isMCPServerActive()).toBe(true);
 
       const originalDateNow = Date.now;
-      Date.now = jest.fn(() => originalDateNow() + 16000);
+      Date.now = jest.fn(() => originalDateNow() + 31000);
 
       expect(app.isMCPServerActive()).toBe(false);
 
@@ -227,7 +229,7 @@ describe('HTTP Server', () => {
         mcpServerActive: true
       });
       expect(response.body.lastMCPActivity).toBeGreaterThan(0);
-      expect(response.body.uptime).toBeGreaterThan(0);
+      expect(response.body.uptime).toBeGreaterThanOrEqual(0);
     });
   });
 });

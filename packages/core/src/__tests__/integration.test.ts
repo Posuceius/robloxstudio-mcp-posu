@@ -141,8 +141,8 @@ describe('Integration Tests', () => {
 
       await request(app).post('/disconnect').expect(200);
 
-      await expect(request1).rejects.toThrow('Connection closed');
-      await expect(request2).rejects.toThrow('Connection closed');
+      await expect(request1).rejects.toThrow('Target instance "edit" disconnected');
+      await expect(request2).rejects.toThrow('Target instance "edit" disconnected');
 
       await request(app).post('/ready').expect(200);
 
@@ -171,7 +171,7 @@ describe('Integration Tests', () => {
       expect(health.body.pluginConnected).toBe(false);
       expect(health.body.mcpServerActive).toBe(false);
 
-      await request(app).get('/poll').expect(503);
+      await request(app).post('/ready').expect(200);
 
       health = await request(app).get('/health').expect(200);
       expect(health.body.pluginConnected).toBe(true);

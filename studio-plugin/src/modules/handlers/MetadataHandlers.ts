@@ -359,6 +359,48 @@ function redo(_requestData: Record<string, unknown>) {
 	return { error: `Failed to redo: ${result}` };
 }
 
+function bulkSetAttributes(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	const attributes = requestData.attributes as Record<string, unknown>;
+
+	if (!instancePath || !attributes) {
+		return { error: "Instance path and attributes are required" };
+	}
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+
+	const recordingId = beginRecording(`Bulk set attributes on ${instance.Name}`);
+
+	const results: Record<string, unknown>[] = [];
+	let successCount = 0;
+	let failureCount = 0;
+
+	for (const [name, rawValue] of pairs(attributes)) {
+		const attrName = name as string;
+		const [ok, err] = pcall(() => {
+			const value = deserializeValue(rawValue);
+			instance.SetAttribute(attrName, value as AttributeValue);
+		});
+
+		if (ok) {
+			successCount++;
+			results.push({ attributeName: attrName, success: true });
+		} else {
+			failureCount++;
+			results.push({ attributeName: attrName, success: false, error: tostring(err) });
+		}
+	}
+
+	finishRecording(recordingId, successCount > 0);
+
+	return {
+		instancePath,
+		results,
+		summary: { total: successCount + failureCount, succeeded: successCount, failed: failureCount },
+	};
+}
+
 export = {
 	getAttribute,
 	setAttribute,
@@ -372,4 +414,5 @@ export = {
 	executeLuau,
 	undo,
 	redo,
+	bulkSetAttributes,
 };

@@ -1,8 +1,23 @@
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import {
+  CallToolRequestSchema,
+  ErrorCode,
+  ListToolsRequestSchema,
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js';
 import { RobloxStudioTools } from './tools/index.js';
 import { BridgeService } from './bridge-service.js';
+import type { ToolDefinition } from './tools/definitions.js';
+
+interface StreamableHttpConfig {
+  name: string;
+  version: string;
+  tools: ToolDefinition[];
+}
 
 type ToolHandler = (tools: RobloxStudioTools, body: any) => Promise<any>;
 
@@ -24,16 +39,12 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   mass_set_property: (tools, body) => tools.massSetProperty(body.paths, body.propertyName, body.propertyValue),
   mass_get_property: (tools, body) => tools.massGetProperty(body.paths, body.propertyName),
   create_object: (tools, body) => tools.createObject(body.className, body.parent, body.name, body.properties),
-  create_object_with_properties: (tools, body) => tools.createObject(body.className, body.parent, body.name, body.properties),
   mass_create_objects: (tools, body) => tools.massCreateObjects(body.objects),
-  mass_create_objects_with_properties: (tools, body) => tools.massCreateObjects(body.objects),
   create_ui_tree: (tools, body) => tools.createUITree(body.parentPath, body.tree),
   import_luau_ui: (tools, body) => tools.importLuauUI(body.parentPath, body.code),
   delete_object: (tools, body) => tools.deleteObject(body.instancePath),
   smart_duplicate: (tools, body) => tools.smartDuplicate(body.instancePath, body.count, body.options),
   mass_duplicate: (tools, body) => tools.massDuplicate(body.duplications),
-  set_calculated_property: (tools, body) => tools.setCalculatedProperty(body.paths, body.propertyName, body.formula, body.variables),
-  set_relative_property: (tools, body) => tools.setRelativeProperty(body.paths, body.propertyName, body.operation, body.value, body.component),
   grep_scripts: (tools, body) => tools.grepScripts(body.pattern, {
     caseSensitive: body.caseSensitive,
     usePattern: body.usePattern,
@@ -44,13 +55,13 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     path: body.path,
     classFilter: body.classFilter,
   }),
-  find_replace_in_scripts: (tools, body) => tools.findReplaceInScripts(body.search, body.replacement, { path: body.path, caseSensitive: body.caseSensitive, dryRun: body.dryRun }),
+  find_and_replace_in_scripts: (tools, body) => tools.findAndReplaceInScripts(body.pattern, body.replacement, { caseSensitive: body.caseSensitive, usePattern: body.usePattern, path: body.path, classFilter: body.classFilter, dryRun: body.dryRun, maxReplacements: body.maxReplacements }),
   get_game_stats: (tools, body) => tools.getGameStats(body.path),
-  get_output_log: (tools, body) => tools.getOutputLog(body.maxEntries),
+  get_output_log: (tools, body) => tools.getOutputLog(body.maxEntries, body.messageType),
   get_script_dependencies: (tools, body) => tools.getScriptDependencies(body.instancePath, body.path),
   get_script_source: (tools, body) => tools.getScriptSource(body.instancePath, body.startLine, body.endLine),
   set_script_source: (tools, body) => tools.setScriptSource(body.instancePath, body.source),
-  edit_script_lines: (tools, body) => tools.editScriptLines(body.instancePath, body.startLine, body.endLine, body.newContent),
+  edit_script_lines: (tools, body) => tools.editScriptLines(body.instancePath, body.old_string, body.new_string),
   insert_script_lines: (tools, body) => tools.insertScriptLines(body.instancePath, body.afterLine, body.newContent),
   delete_script_lines: (tools, body) => tools.deleteScriptLines(body.instancePath, body.startLine, body.endLine),
   get_attribute: (tools, body) => tools.getAttribute(body.instancePath, body.attributeName),
@@ -62,10 +73,10 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   remove_tag: (tools, body) => tools.removeTag(body.instancePath, body.tagName),
   get_tagged: (tools, body) => tools.getTagged(body.tagName),
   get_selection: (tools) => tools.getSelection(),
-  execute_luau: (tools, body) => tools.executeLuau(body.code),
-  start_playtest: (tools, body) => tools.startPlaytest(body.mode),
+  execute_luau: (tools, body) => tools.executeLuau(body.code, body.target),
+  start_playtest: (tools, body) => tools.startPlaytest(body.mode, body.numPlayers),
   stop_playtest: (tools) => tools.stopPlaytest(),
-  get_playtest_output: (tools) => tools.getPlaytestOutput(),
+  get_playtest_output: (tools, body) => tools.getPlaytestOutput(body.target),
   export_build: (tools, body) => tools.exportBuild(body.instancePath, body.outputId, body.style),
   create_build: (tools, body) => tools.createBuild(body.id, body.style, body.palette, body.parts, body.bounds),
   generate_build: (tools, body) => tools.generateBuild(body.id, body.style, body.palette, body.code, body.seed),
@@ -82,15 +93,25 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   insert_asset: (tools, body) => tools.insertAsset(body.assetId, body.parentPath, body.position),
   preview_asset: (tools, body) => tools.previewAsset(body.assetId, body.includeProperties, body.maxDepth),
   capture_screenshot: (tools) => tools.captureScreenshot(),
+  clone_object: (tools, body) => tools.cloneObject(body.instancePath, body.targetParentPath),
+  move_object: (tools, body) => tools.moveObject(body.instancePath, body.targetParentPath),
+  rename_object: (tools, body) => tools.renameObject(body.instancePath, body.newName),
+  get_descendants: (tools, body) => tools.getDescendants(body.instancePath, body.maxDepth, body.classFilter),
+  compare_instances: (tools, body) => tools.compareInstances(body.instancePathA, body.instancePathB),
+  get_script_analysis: (tools, body) => tools.getScriptAnalysis(body.instancePath),
+  bulk_set_attributes: (tools, body) => tools.bulkSetAttributes(body.instancePath, body.attributes),
+  get_connected_instances: (tools) => tools.getConnectedInstances(),
+  upload_decal: (tools, body) => tools.uploadDecal(body.filePath, body.displayName, body.description, body.userId, body.groupId),
+  simulate_mouse_input: (tools, body) => tools.simulateMouseInput(body.action, body.x, body.y, body.button, body.scrollDirection, body.target),
+  simulate_keyboard_input: (tools, body) => tools.simulateKeyboardInput(body.keyCode, body.action, body.duration, body.target),
+  character_navigation: (tools, body) => tools.characterNavigation(body.position, body.instancePath, body.waitForCompletion, body.timeout, body.target),
 };
 
-export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService, allowedTools?: Set<string>) {
+export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService, allowedTools?: Set<string>, serverConfig?: StreamableHttpConfig) {
   const app = express();
-  let pluginConnected = false;
   let mcpServerActive = false;
   let lastMCPActivity = 0;
   let mcpServerStartTime = 0;
-  let lastPluginActivity = 0;
   const proxyInstances = new Set<string>();
 
   const setMCPServerActive = (active: boolean) => {
@@ -116,7 +137,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
   };
 
   const isPluginConnected = () => {
-    return pluginConnected && (Date.now() - lastPluginActivity < 30000);
+    return bridge.getInstances().length > 0;
   };
 
   app.use(cors());
@@ -125,46 +146,82 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
 
 
   app.get('/health', (req, res) => {
+    const instances = bridge.getInstances();
     res.json({
       status: 'ok',
       service: 'robloxstudio-mcp',
-      pluginConnected,
+      version: serverConfig?.version,
+      pluginConnected: instances.length > 0,
+      instanceCount: instances.length,
+      instances: instances.map(i => ({
+        instanceId: i.instanceId,
+        role: i.role,
+        lastActivity: i.lastActivity,
+        connectedAt: i.connectedAt,
+      })),
       mcpServerActive: isMCPServerActive(),
       uptime: mcpServerActive ? Date.now() - mcpServerStartTime : 0,
-      proxyInstanceCount: proxyInstances.size
+      pendingRequests: bridge.getPendingRequestCount(),
+      proxyInstanceCount: proxyInstances.size,
+      streamableHttp: !!serverConfig,
     });
   });
 
 
   app.post('/ready', (req, res) => {
-    pluginConnected = true;
-    lastPluginActivity = Date.now();
-    res.json({ success: true });
+    const { instanceId, role } = req.body;
+
+    if (instanceId && role) {
+      const assignedRole = bridge.registerInstance(instanceId, role);
+      res.json({ success: true, assignedRole });
+    } else {
+      bridge.registerInstance('legacy', 'edit');
+      res.json({ success: true, assignedRole: 'edit' });
+    }
   });
 
 
   app.post('/disconnect', (req, res) => {
-    pluginConnected = false;
-    bridge.clearAllPendingRequests();
+    const { instanceId } = req.body;
+
+    if (instanceId) {
+      bridge.unregisterInstance(instanceId);
+    } else {
+      bridge.unregisterInstance('legacy');
+      bridge.clearAllPendingRequests();
+    }
     res.json({ success: true });
   });
 
 
   app.get('/status', (req, res) => {
+    const instances = bridge.getInstances();
     res.json({
-      pluginConnected: isPluginConnected(),
+      pluginConnected: instances.length > 0,
+      instanceCount: instances.length,
+      instances: instances.map(i => ({ instanceId: i.instanceId, role: i.role })),
       mcpServerActive: isMCPServerActive(),
       lastMCPActivity,
       uptime: mcpServerActive ? Date.now() - mcpServerStartTime : 0
     });
   });
 
+  app.get('/instances', (req, res) => {
+    res.json({ instances: bridge.getInstances() });
+  });
+
 
   app.get('/poll', (req, res) => {
-    if (!pluginConnected) {
-      pluginConnected = true;
+    const instanceId = req.query.instanceId as string | undefined;
+    bridge.updateInstanceActivity(instanceId ?? 'legacy');
+
+    let callerRole = 'edit';
+    if (instanceId) {
+      const inst = bridge.getInstances().find(i => i.instanceId === instanceId);
+      if (inst) {
+        callerRole = inst.role;
+      }
     }
-    lastPluginActivity = Date.now();
 
     if (!isMCPServerActive()) {
       res.status(503).json({
@@ -176,7 +233,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
       return;
     }
 
-    const pendingRequest = bridge.getPendingRequest();
+    const pendingRequest = bridge.getPendingRequest(callerRole);
     if (pendingRequest) {
       res.json({
         request: pendingRequest.request,
@@ -210,7 +267,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
 
 
   app.post('/proxy', async (req, res) => {
-    const { endpoint, data, proxyInstanceId } = req.body;
+    const { endpoint, data, target, proxyInstanceId } = req.body;
 
     if (!endpoint) {
       res.status(400).json({ error: 'endpoint is required' });
@@ -222,13 +279,93 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
     }
 
     try {
-      const response = await bridge.sendRequest(endpoint, data);
+      const response = await bridge.sendRequest(endpoint, data, target || 'edit');
       res.json({ response });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Proxy request failed' });
     }
   });
 
+
+  // Streamable HTTP MCP transport
+  if (serverConfig) {
+    const filteredTools = serverConfig.tools.filter(t => !allowedTools || allowedTools.has(t.name));
+
+    app.post('/mcp', async (req, res) => {
+      try {
+        trackMCPActivity();
+
+        const server = new Server(
+          { name: serverConfig.name, version: serverConfig.version },
+          { capabilities: { tools: {} } }
+        );
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+          tools: filteredTools.map(t => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+          })),
+        }));
+
+        server.setRequestHandler(CallToolRequestSchema, async (request) => {
+          const { name, arguments: args } = request.params;
+
+          if (allowedTools && !allowedTools.has(name)) {
+            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+          }
+          const handler = TOOL_HANDLERS[name];
+          if (!handler) {
+            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+          }
+
+          try {
+            return await handler(tools, args || {});
+          } catch (error) {
+            if (error instanceof McpError) throw error;
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+        });
+
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+        });
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        res.on('close', () => {
+          transport.close();
+          server.close();
+        });
+      } catch (error) {
+        if (!res.headersSent) {
+          res.status(500).json({
+            jsonrpc: '2.0',
+            error: { code: -32603, message: 'Internal server error' },
+            id: null,
+          });
+        }
+      }
+    });
+
+    app.get('/mcp', (req, res) => {
+      res.writeHead(405).end(JSON.stringify({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed.' },
+        id: null,
+      }));
+    });
+
+    app.delete('/mcp', (req, res) => {
+      res.writeHead(405).end(JSON.stringify({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed.' },
+        id: null,
+      }));
+    });
+  }
 
   app.use('/mcp/*', (req, res, next) => {
     trackMCPActivity();

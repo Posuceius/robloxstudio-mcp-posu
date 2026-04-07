@@ -13,6 +13,7 @@ export interface Connection {
 	maxRetryDelay: number;
 	retryBackoffMultiplier: number;
 	lastHttpOk: boolean;
+	lastMcpOk: boolean;
 	mcpWaitStartTime?: number;
 	isPolling: boolean;
 	heartbeatConnection?: RBXScriptConnection;
@@ -33,6 +34,10 @@ export interface PollResponse {
 	requestId?: string;
 }
 
+export interface ReadyResponse {
+	success: boolean;
+	assignedRole?: string;
+}
 
 declare global {
 	function loadstring(code: string): LuaTuple<[(() => unknown) | undefined, string?]>;

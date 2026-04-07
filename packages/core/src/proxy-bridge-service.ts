@@ -12,7 +12,7 @@ export class ProxyBridgeService extends BridgeService {
     this.proxyInstanceId = uuidv4();
   }
 
-  override async sendRequest(endpoint: string, data: any): Promise<any> {
+  override async sendRequest(endpoint: string, data: any, target = 'edit'): Promise<any> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.proxyRequestTimeout);
 
@@ -20,7 +20,7 @@ export class ProxyBridgeService extends BridgeService {
       const response = await fetch(`${this.primaryBaseUrl}/proxy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint, data, proxyInstanceId: this.proxyInstanceId }),
+        body: JSON.stringify({ endpoint, data, target, proxyInstanceId: this.proxyInstanceId }),
         signal: controller.signal,
       });
 

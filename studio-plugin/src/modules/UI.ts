@@ -213,6 +213,14 @@ function updateTabDot(connIndex: number) {
 	}
 }
 
+function updateTabLabel(connIndex: number) {
+	const conn = State.getConnection(connIndex);
+	const tb = tabButtons.get(connIndex);
+	if (conn && tb && tb.label) {
+		tb.label.Text = tostring(conn.port);
+	}
+}
+
 function init(pluginRef: Plugin) {
 	const CURRENT_VERSION = State.CURRENT_VERSION;
 
@@ -431,6 +439,15 @@ function init(pluginRef: Plugin) {
 	urlPadding.PaddingRight = new UDim(0, 8);
 	urlPadding.Parent = urlInput;
 
+	urlInput.FocusLost.Connect(() => {
+		const conn = State.getActiveConnection();
+		if (!conn || conn.isActive) return;
+		conn.serverUrl = urlInput.Text;
+		const [portStr] = conn.serverUrl.match(":(%d+)$");
+		if (portStr) conn.port = tonumber(portStr) ?? conn.port;
+		updateTabLabel(State.getActiveTabIndex());
+	});
+
 	const statusRow = new Instance("Frame");
 	statusRow.Size = new UDim2(1, 0, 0, 14);
 	statusRow.BackgroundTransparency = 1;
@@ -581,50 +598,116 @@ function updateUIState() {
 	if (!conn) return;
 	const el = elements;
 
-	if (conn.isActive) {
-		el.statusLabel.Text = "Connecting...";
-		el.statusLabel.TextColor3 = C.yellow;
-		el.statusIndicator.BackgroundColor3 = C.yellow;
-		el.statusPulse.BackgroundColor3 = C.yellow;
-		el.statusText.Text = "CONNECTING";
-		el.detailStatusLabel.Text = conn.consecutiveFailures === 0 ? "..." : "HTTP: X  MCP: X";
-		el.detailStatusLabel.TextColor3 = C.muted;
-		startPulseAnimation();
-
-		el.step1Dot.BackgroundColor3 = C.yellow;
-		el.step1Label.Text = "HTTP server (connecting...)";
-		el.step2Dot.BackgroundColor3 = C.yellow;
-		el.step2Label.Text = "MCP bridge (connecting...)";
-		el.step3Dot.BackgroundColor3 = C.yellow;
-		el.step3Label.Text = "Commands (connecting...)";
-		conn.mcpWaitStartTime = undefined;
-		el.troubleshootLabel.Visible = false;
-
-		if (!buttonHover) setButtonDisconnect(el.connectButton, el.connectStroke);
-		el.urlInput.TextEditable = false;
-		el.urlInput.BackgroundColor3 = C.card;
-	} else {
+	if (!conn.isActive) {
 		el.statusLabel.Text = "Disconnected";
 		el.statusLabel.TextColor3 = C.muted;
 		el.statusIndicator.BackgroundColor3 = C.red;
 		el.statusPulse.BackgroundColor3 = C.red;
 		el.statusText.Text = "OFFLINE";
-		el.detailStatusLabel.Text = "";
+		el.detailStatusLabel.Text = "Not connected";
 		el.detailStatusLabel.TextColor3 = C.muted;
-		stopPulseAnimation();
-
 		el.step1Dot.BackgroundColor3 = C.gray;
 		el.step1Label.Text = "HTTP server";
 		el.step2Dot.BackgroundColor3 = C.gray;
 		el.step2Label.Text = "MCP bridge";
 		el.step3Dot.BackgroundColor3 = C.gray;
 		el.step3Label.Text = "Commands";
-		conn.mcpWaitStartTime = undefined;
 		el.troubleshootLabel.Visible = false;
 
 		if (!buttonHover) setButtonConnect(el.connectButton, el.connectStroke);
 		el.urlInput.TextEditable = true;
 		el.urlInput.BackgroundColor3 = C.bg;
+		return;
+	}
+
+	if (!buttonHover) setButtonDisconnect(el.connectButton, el.connectStroke);
+	el.urlInput.TextEditable = false;
+	el.urlInput.BackgroundColor3 = C.card;
+
+	if (conn.lastHttpOk && conn.lastMcpOk) {
+		el.statusLabel.Text = "Connected";
+		el.statusLabel.TextColor3 = Color3.fromRGB(34, 197, 94);
+		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
+		el.statusPulse.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
+		el.statusText.Text = "ONLINE";
+		el.detailStatusLabel.Text = "HTTP: OK  MCP: OK";
+		el.detailStatusLabel.TextColor3 = Color3.fromRGB(34, 197, 94);
+		el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
+		el.step1Label.Text = "HTTP server (OK)";
+		el.step2Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
+		el.step2Label.Text = "MCP bridge (OK)";
+		el.step3Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
+		el.step3Label.Text = "Commands (OK)";
+		el.troubleshootLabel.Visible = false;
+		stopPulseAnimation();
+	} else if (conn.lastHttpOk && !conn.lastMcpOk) {
+		el.statusLabel.Text = "Waiting for MCP server";
+		el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
+		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.statusText.Text = "WAITING";
+		el.detailStatusLabel.Text = "HTTP: OK  MCP: ...";
+		el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
+		el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94);
+		el.step1Label.Text = "HTTP server (OK)";
+		el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.step2Label.Text = "MCP bridge (waiting...)";
+		el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.step3Label.Text = "Commands (waiting...)";
+		const elapsed = conn.mcpWaitStartTime !== undefined ? tick() - conn.mcpWaitStartTime : 0;
+		el.troubleshootLabel.Visible = elapsed > 8;
+		startPulseAnimation();
+	} else if (conn.consecutiveFailures >= conn.maxFailuresBeforeError) {
+		el.statusLabel.Text = "Server unavailable";
+		el.statusLabel.TextColor3 = Color3.fromRGB(239, 68, 68);
+		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
+		el.statusPulse.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
+		el.statusText.Text = "ERROR";
+		el.detailStatusLabel.Text = "HTTP: X  MCP: X";
+		el.detailStatusLabel.TextColor3 = Color3.fromRGB(239, 68, 68);
+		el.step1Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
+		el.step1Label.Text = "HTTP server (error)";
+		el.step2Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
+		el.step2Label.Text = "MCP bridge (error)";
+		el.step3Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68);
+		el.step3Label.Text = "Commands (error)";
+		el.troubleshootLabel.Visible = false;
+		stopPulseAnimation();
+	} else if (conn.consecutiveFailures > 5) {
+		const waitTime = math.ceil(conn.currentRetryDelay);
+		el.statusLabel.Text = `Retrying (${waitTime}s)`;
+		el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
+		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.statusText.Text = "RETRY";
+		el.detailStatusLabel.Text = "HTTP: ...  MCP: ...";
+		el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11);
+		el.step1Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.step1Label.Text = "HTTP server (retrying...)";
+		el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.step2Label.Text = "MCP bridge (retrying...)";
+		el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11);
+		el.step3Label.Text = "Commands (retrying...)";
+		el.troubleshootLabel.Visible = false;
+		startPulseAnimation();
+	} else {
+		el.statusLabel.Text = conn.consecutiveFailures > 1
+			? `Connecting (attempt ${conn.consecutiveFailures})`
+			: "Connecting...";
+		el.statusLabel.TextColor3 = C.yellow;
+		el.statusIndicator.BackgroundColor3 = C.yellow;
+		el.statusPulse.BackgroundColor3 = C.yellow;
+		el.statusText.Text = "CONNECTING";
+		el.detailStatusLabel.Text = conn.consecutiveFailures === 0 ? "..." : "HTTP: ...  MCP: ...";
+		el.detailStatusLabel.TextColor3 = C.muted;
+		el.step1Dot.BackgroundColor3 = C.yellow;
+		el.step1Label.Text = "HTTP server (connecting...)";
+		el.step2Dot.BackgroundColor3 = C.yellow;
+		el.step2Label.Text = "MCP bridge (connecting...)";
+		el.step3Dot.BackgroundColor3 = C.yellow;
+		el.step3Label.Text = "Commands (connecting...)";
+		el.troubleshootLabel.Visible = false;
+		startPulseAnimation();
 	}
 }
 
@@ -633,6 +716,7 @@ export = {
 	init,
 	updateUIState,
 	updateTabDot,
+	updateTabLabel,
 	stopPulseAnimation,
 	startPulseAnimation,
 	getElements: () => elements,
