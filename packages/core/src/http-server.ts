@@ -213,10 +213,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
 
   app.get('/poll', (req, res) => {
     const instanceId = req.query.instanceId as string | undefined;
-
-    if (instanceId) {
-      bridge.updateInstanceActivity(instanceId);
-    }
+    bridge.updateInstanceActivity(instanceId ?? 'legacy');
 
     let callerRole = 'edit';
     if (instanceId) {

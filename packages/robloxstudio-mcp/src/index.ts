@@ -10,7 +10,9 @@ if (process.argv.includes('--install-plugin')) {
 } else {
   const flagValue = (flag: string): string | undefined => {
     const idx = process.argv.indexOf(flag);
-    return idx !== -1 && idx + 1 < process.argv.length ? process.argv[idx + 1] : undefined;
+    if (idx === -1 || idx + 1 >= process.argv.length) return undefined;
+    const next = process.argv[idx + 1];
+    return next.startsWith('--') ? undefined : next;
   };
 
   const openCloudKey = flagValue('--open-cloud-key');

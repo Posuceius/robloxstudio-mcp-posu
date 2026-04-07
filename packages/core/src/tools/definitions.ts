@@ -1534,7 +1534,11 @@ part(0,2,0,2,1,1,"b")`,
           type: 'string',
           description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
         }
-      }
+      },
+      oneOf: [
+        { required: ['position'] },
+        { required: ['instancePath'] }
+      ]
     }
   },
 

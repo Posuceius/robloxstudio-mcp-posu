@@ -165,7 +165,9 @@ function pollForRequests(connIndex: number) {
 
 		if (connIndex === State.getActiveTabIndex()) {
 			UI.updateUIState();
-			if (!mcpConnected && conn.mcpWaitStartTime === undefined) {
+			if (mcpConnected) {
+				conn.mcpWaitStartTime = undefined;
+			} else if (conn.mcpWaitStartTime === undefined) {
 				conn.mcpWaitStartTime = tick();
 			}
 		}

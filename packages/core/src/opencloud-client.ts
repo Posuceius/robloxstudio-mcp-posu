@@ -302,9 +302,14 @@ export class OpenCloudClient {
       jpeg: 'image/jpeg',
       bmp: 'image/bmp',
       tga: 'image/x-tga',
+      mp3: 'audio/mpeg',
+      wav: 'audio/wav',
+      ogg: 'audio/ogg',
+      rbxm: 'application/octet-stream',
+      rbxmx: 'application/xml',
     };
     if (!ext || !mimeTypes[ext]) {
-      throw new Error(`Unsupported image format: ${fileName}. Supported: PNG, JPG, BMP, TGA`);
+      throw new Error(`Unsupported file format: ${fileName}. Supported: PNG, JPG, BMP, TGA (images), MP3, WAV, OGG (audio), RBXM, RBXMX (models)`);
     }
     return mimeTypes[ext];
   }
@@ -377,10 +382,10 @@ export class OpenCloudClient {
       const result = await this.request<AssetOperationResponse>(
         `/assets/v1/operations/${operationId}`
       );
-      if (result.done) return result;
       if (result.error) {
         throw new Error(`Asset upload failed: ${result.error.message}`);
       }
+      if (result.done) return result;
       await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
     throw new Error(

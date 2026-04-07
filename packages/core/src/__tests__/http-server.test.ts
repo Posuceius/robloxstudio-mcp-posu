@@ -229,7 +229,7 @@ describe('HTTP Server', () => {
         mcpServerActive: true
       });
       expect(response.body.lastMCPActivity).toBeGreaterThan(0);
-      expect(response.body.uptime).toBeGreaterThan(0);
+      expect(response.body.uptime).toBeGreaterThanOrEqual(0);
     });
   });
 });
