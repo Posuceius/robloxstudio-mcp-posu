@@ -290,7 +290,12 @@ export class OpenCloudClient {
       '/assets/v1/assets',
       formData
     );
-    if (operation.done) return operation;
+    if (operation.done) {
+      if (operation.error) {
+        throw new Error(`Asset upload failed: ${operation.error.message}`);
+      }
+      return operation;
+    }
     return this.pollOperation(operation.path);
   }
 
@@ -307,9 +312,10 @@ export class OpenCloudClient {
       ogg: 'audio/ogg',
       rbxm: 'application/octet-stream',
       rbxmx: 'application/xml',
+      fbx: 'model/fbx',
     };
     if (!ext || !mimeTypes[ext]) {
-      throw new Error(`Unsupported file format: ${fileName}. Supported: PNG, JPG, BMP, TGA (images), MP3, WAV, OGG (audio), RBXM, RBXMX (models)`);
+      throw new Error(`Unsupported file format: ${fileName}. Supported: PNG, JPG, BMP, TGA (images), MP3, WAV, OGG (audio), RBXM, RBXMX, FBX (models)`);
     }
     return mimeTypes[ext];
   }

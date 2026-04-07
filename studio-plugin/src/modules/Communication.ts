@@ -255,6 +255,7 @@ function deactivatePlugin(connIndex?: number) {
 
 	conn.isActive = false;
 	conn.lastMcpOk = false;
+	conn.mcpWaitStartTime = undefined;
 
 	if (idx === State.getActiveTabIndex()) UI.updateUIState();
 	UI.updateTabDot(idx);
