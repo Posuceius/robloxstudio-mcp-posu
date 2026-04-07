@@ -1,10 +1,12 @@
-import { LogService } from "@rbxts/services";
+import { HttpService, LogService } from "@rbxts/services";
 
 const StudioTestService = game.GetService("StudioTestService");
 const ServerScriptService = game.GetService("ServerScriptService");
 const ScriptEditorService = game.GetService("ScriptEditorService");
 
 const STOP_SIGNAL = "__MCP_STOP__";
+const NAV_SIGNAL = "__MCP_NAV__";
+const NAV_RESULT = "__MCP_NAV_RESULT__";
 
 interface OutputEntry {
 	message: string;
@@ -18,23 +20,83 @@ let logConnection: RBXScriptConnection | undefined;
 let testResult: unknown;
 let testError: string | undefined;
 let stopListenerScript: Script | undefined;
+let navResultCallback: ((json: string) => void) | undefined;
 
-function buildStopListenerSource(): string {
+function buildCommandListenerSource(): string {
 	return `local LogService = game:GetService("LogService")
 local StudioTestService = game:GetService("StudioTestService")
-LogService.MessageOut:Connect(function(message)
-	if message == "${STOP_SIGNAL}" then
+local PathfindingService = game:GetService("PathfindingService")
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local NAV_SIG = "${NAV_SIGNAL}"
+local NAV_RES = "${NAV_RESULT}"
+LogService.MessageOut:Connect(function(msg)
+	if msg == "${STOP_SIGNAL}" then
 		pcall(function() StudioTestService:EndTest("stopped_by_mcp") end)
+	elseif string.sub(msg, 1, #NAV_SIG + 1) == NAV_SIG .. ":" then
+		local json = string.sub(msg, #NAV_SIG + 2)
+		task.spawn(function()
+			local ok, d = pcall(function() return HttpService:JSONDecode(json) end)
+			if not ok or not d then
+				print(NAV_RES .. ':{"success":false,"error":"parse_error"}')
+				return
+			end
+			local ps = Players:GetPlayers()
+			if #ps == 0 then
+				print(NAV_RES .. ':{"success":false,"error":"no_players"}')
+				return
+			end
+			local char = ps[1].Character or ps[1].CharacterAdded:Wait()
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local root = char:FindFirstChild("HumanoidRootPart")
+			if not hum or not root then
+				print(NAV_RES .. ':{"success":false,"error":"no_humanoid"}')
+				return
+			end
+			local target
+			if d.instancePath then
+				local parts = string.split(d.instancePath, ".")
+				local cur = game
+				for i = 2, #parts do
+					cur = cur:FindFirstChild(parts[i])
+					if not cur then
+						print(NAV_RES .. ':{"success":false,"error":"instance_not_found"}')
+						return
+					end
+				end
+				if cur:IsA("BasePart") then target = cur.Position
+				elseif cur:IsA("Model") and cur.PrimaryPart then target = cur.PrimaryPart.Position
+				else target = cur:GetPivot().Position end
+			else
+				target = Vector3.new(d.x or 0, d.y or 0, d.z or 0)
+			end
+			local path = PathfindingService:CreatePath({AgentRadius=2,AgentHeight=5,AgentCanJump=true})
+			local pok = pcall(function() path:ComputeAsync(root.Position, target) end)
+			local method = "direct"
+			if pok and path.Status == Enum.PathStatus.Success then
+				method = "pathfinding"
+				for _, wp in ipairs(path:GetWaypoints()) do
+					hum:MoveTo(wp.Position)
+					if wp.Action == Enum.PathWaypointAction.Jump then hum.Jump = true end
+					hum.MoveToFinished:Wait()
+				end
+			else
+				hum:MoveTo(target)
+				hum.MoveToFinished:Wait()
+			end
+			local fp = root.Position
+			print(NAV_RES .. ':{"success":true,"method":"' .. method .. '","position":[' .. fp.X .. ',' .. fp.Y .. ',' .. fp.Z .. ']}')
+		end)
 	end
 end)`;
 }
 
 function injectStopListener() {
 	const listener = new Instance("Script");
-	listener.Name = "__MCP_StopListener";
+	listener.Name = "__MCP_CommandListener";
 	listener.Parent = ServerScriptService;
 
-	const source = buildStopListenerSource();
+	const source = buildCommandListenerSource();
 	const [seOk] = pcall(() => {
 		ScriptEditorService.UpdateSourceAsync(listener, () => source);
 	});
@@ -54,7 +116,7 @@ function cleanupStopListener() {
 
 function startPlaytest(requestData: Record<string, unknown>) {
 	const mode = requestData.mode as string | undefined;
-	const numPlayers = (requestData.numPlayers as number) ?? 1;
+	const numPlayers = requestData.numPlayers as number | undefined;
 
 	if (mode !== "play" && mode !== "run") {
 		return { error: 'mode must be "play" or "run"' };
@@ -73,6 +135,13 @@ function startPlaytest(requestData: Record<string, unknown>) {
 
 	logConnection = LogService.MessageOut.Connect((message, messageType) => {
 		if (message === STOP_SIGNAL) return;
+		if (message.sub(1, NAV_SIGNAL.size()) === NAV_SIGNAL) return;
+		if (message.sub(1, NAV_RESULT.size() + 1) === `${NAV_RESULT}:`) {
+			if (navResultCallback) {
+				navResultCallback(message.sub(NAV_RESULT.size() + 2));
+			}
+			return;
+		}
 		outputBuffer.push({
 			message,
 			messageType: messageType.Name,
@@ -85,10 +154,15 @@ function startPlaytest(requestData: Record<string, unknown>) {
 		warn(`[MCP] Failed to inject stop listener: ${injErr}`);
 	}
 
+	if (numPlayers !== undefined && mode === "play") {
+		const TestService = game.GetService("TestService") as TestService & { NumberOfPlayers: number };
+		TestService.NumberOfPlayers = math.clamp(numPlayers, 1, 8);
+	}
+
 	task.spawn(() => {
 		const [ok, result] = pcall(() => {
 			if (mode === "play") {
-				return StudioTestService.ExecutePlayModeAsync({ NumPlayers: numPlayers });
+				return StudioTestService.ExecutePlayModeAsync({});
 			}
 			return StudioTestService.ExecuteRunModeAsync({});
 		});
@@ -108,22 +182,37 @@ function startPlaytest(requestData: Record<string, unknown>) {
 		cleanupStopListener();
 	});
 
-	return { success: true, message: `Playtest started in ${mode} mode` };
+	const msg = numPlayers !== undefined
+		? `Playtest started in ${mode} mode with ${numPlayers} player(s)`
+		: `Playtest started in ${mode} mode`;
+	return { success: true, message: msg };
 }
 
 function stopPlaytest(_requestData: Record<string, unknown>) {
-	if (!testRunning) {
-		return { error: "No test is currently running" };
+	if (testRunning) {
+		warn(STOP_SIGNAL);
+		return {
+			success: true,
+			output: [...outputBuffer],
+			outputCount: outputBuffer.size(),
+			message: "Playtest stop signal sent.",
+		};
 	}
 
-	warn(STOP_SIGNAL);
+	const endTest = StudioTestService as unknown as Instance & { EndTest(reason: string): void };
+	const [endOk] = pcall(() => {
+		endTest.EndTest("stopped_by_mcp");
+	});
+	if (endOk) {
+		return {
+			success: true,
+			output: [],
+			outputCount: 0,
+			message: "Playtest stopped via StudioTestService.",
+		};
+	}
 
-	return {
-		success: true,
-		output: [...outputBuffer],
-		outputCount: outputBuffer.size(),
-		message: "Playtest stop signal sent.",
-	};
+	return { error: "No MCP-started test is running and direct stop failed. The playtest may have been started manually." };
 }
 
 function getPlaytestOutput(_requestData: Record<string, unknown>) {
@@ -137,55 +226,49 @@ function getPlaytestOutput(_requestData: Record<string, unknown>) {
 }
 
 function characterNavigation(requestData: Record<string, unknown>) {
-	const action = requestData.action as string;
-	const target = requestData.target as string | undefined;
+	if (!testRunning) {
+		return { error: "Playtest must be running. Start a playtest in 'play' mode first." };
+	}
 
-	if (!action) return { error: "action is required" };
+	const position = requestData.position as number[] | undefined;
+	const instancePath = requestData.instancePath as string | undefined;
+	const waitForCompletion = (requestData.waitForCompletion as boolean) ?? true;
+	const timeout = (requestData.timeout as number) ?? 25;
 
-	const Players = game.GetService("Players");
-	const localPlayer = Players.LocalPlayer;
-	if (!localPlayer) return { error: "No local player found - must be in Play mode" };
+	if (!position && !instancePath) {
+		return { error: "Either position [x, y, z] or instancePath is required" };
+	}
 
-	const character = localPlayer.Character;
-	if (!character) return { error: "Player has no character" };
+	let navData: string;
+	if (position) {
+		navData = HttpService.JSONEncode({ x: position[0], y: position[1], z: position[2] });
+	} else {
+		navData = HttpService.JSONEncode({ instancePath });
+	}
 
-	const humanoid = character.FindFirstChildOfClass("Humanoid");
-	if (!humanoid) return { error: "Character has no Humanoid" };
+	warn(`${NAV_SIGNAL}:${navData}`);
 
-	const [success, result] = pcall(() => {
-		if (action === "moveTo") {
-			if (!target) error("target path is required for moveTo");
-			const targetInstance = (game as unknown as { GetService(name: string): Instance }).GetService
-				? game.FindFirstChild(target, true)
-				: undefined;
+	if (!waitForCompletion) {
+		return { success: true, message: "Navigation command sent" };
+	}
 
-			const rootPart = character.FindFirstChild("HumanoidRootPart") as BasePart | undefined;
-			if (!rootPart) error("Character has no HumanoidRootPart");
+	let result: string | undefined;
+	navResultCallback = (json: string) => {
+		result = json;
+	};
 
-			if (targetInstance && targetInstance.IsA("BasePart")) {
-				humanoid.MoveTo(targetInstance.Position, targetInstance);
-			} else {
-				error(`Target not found or not a BasePart: ${target}`);
-			}
-			return { success: true, action, message: `Moving character to ${target}` };
-		} else if (action === "jump") {
-			humanoid.Jump = true;
-			return { success: true, action, message: "Character jump triggered" };
-		} else if (action === "stop") {
-			humanoid.MoveTo(rootPart(character) ?? humanoid.RootPart?.Position ?? new Vector3(0, 0, 0));
-			return { success: true, action, message: "Character movement stopped" };
-		} else {
-			error(`Unknown action: ${action}`);
-		}
-	});
+	const startTime = tick();
+	while (!result && tick() - startTime < timeout) {
+		task.wait(0.2);
+	}
+	navResultCallback = undefined;
 
-	if (success) return result;
-	return { error: `characterNavigation failed: ${tostring(result)}` };
-}
-
-function rootPart(character: Model): Vector3 {
-	const root = character.FindFirstChild("HumanoidRootPart") as BasePart | undefined;
-	return root?.Position ?? new Vector3(0, 0, 0);
+	if (result) {
+		const [ok, parsed] = pcall(() => HttpService.JSONDecode(result!));
+		if (ok) return parsed;
+		return { success: true, rawResult: result };
+	}
+	return { error: `Navigation timed out after ${timeout} seconds` };
 }
 
 export = {
