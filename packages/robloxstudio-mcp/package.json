@@ -1,11 +1,11 @@
 {
-  "name": "robloxstudio-mcp",
+  "name": "robloxstudio-mcp-posu",
   "version": "4.0.0",
   "description": "MCP Server for Roblox Studio Integration - Access Studio data, scripts, and objects through AI tools",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "robloxstudio-mcp": "dist/index.js"
+    "robloxstudio-mcp-posu": "dist/index.js"
   },
   "files": [
     "dist/**/*",
@@ -28,11 +28,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/boshyxd/robloxstudio-mcp.git"
+    "url": "https://github.com/Posuceius/robloxstudio-mcp-posu.git"
   },
-  "homepage": "https://github.com/boshyxd/robloxstudio-mcp#readme",
+  "homepage": "https://github.com/Posuceius/robloxstudio-mcp-posu#readme",
   "bugs": {
-    "url": "https://github.com/boshyxd/robloxstudio-mcp/issues"
+    "url": "https://github.com/Posuceius/robloxstudio-mcp-posu/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
